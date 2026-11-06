@@ -56,6 +56,16 @@ export async function selectRepo(formData) {
   revalidatePath('/');
 }
 
+const CARD_IDS = ['bot', 'repo', 'resources', 'activity', 'deploys', 'botlog', 'token'];
+
+/** Panel kartlarının sırası. Sayfa yeniden çizilmesin diye revalidate yapılmaz; sıra zaten tarayıcıda. */
+export async function saveLayout(order) {
+  await requireUser();
+  const valid = Array.isArray(order) ? order.filter((id) => CARD_IDS.includes(id)) : [];
+  const isDefault = valid.length === CARD_IDS.length && valid.every((id, i) => id === CARD_IDS[i]);
+  await setSettings({layout: valid.length && !isDefault ? JSON.stringify([...new Set(valid)]) : null});
+}
+
 export async function newAgentToken() {
   await requireUser();
   await setSettings({agent_token: randomToken(32)});

@@ -1,7 +1,7 @@
 'use client';
 
 import {ActivityIcon, CpuIcon, Loader2Icon} from 'lucide-react';
-import {useEffect, useState} from 'react';
+import {createContext, useContext, useEffect, useState} from 'react';
 import {CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
 import {Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card';
 import {cn} from '@/lib/utils';
@@ -49,7 +49,10 @@ async function fetchMetrics(range) {
   return res.json();
 }
 
-export function UsageCharts() {
+const UsageContext = createContext(null);
+
+/** İki grafik aynı aralığı ve aynı veriyi paylaşır; birinde aralık değişince diğeri de değişir. */
+export function UsageProvider({children}) {
   const [range, setRange] = useState('canli');
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -79,93 +82,92 @@ export function UsageCharts() {
   const points = data?.range === range ? data.points : [];
   const hasData = points.some((p) => p.cpu !== null);
   const latest = [...points].reverse().find((p) => p.cpu !== null);
-  const current = RANGES.find((r) => r.key === range);
+  const value = {range, setRange, data, error, loading, points, hasData, latest};
+  return <UsageContext.Provider value={value}>{children}</UsageContext.Provider>;
+}
 
+function RangeTabs() {
+  const {range, setRange} = useContext(UsageContext);
   return (
-    <section className="space-y-3" aria-label="Kullanım">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="font-semibold">Kullanım</h2>
-          <p className="text-xs text-muted-foreground">{current.hint}</p>
-        </div>
-        <div role="tablist" aria-label="Zaman aralığı" className="inline-flex rounded-lg bg-muted p-0.5">
-          {RANGES.map((r) => (
-            <button
-              key={r.key}
-              role="tab"
-              aria-selected={range === r.key}
-              onClick={() => setRange(r.key)}
-              className={cn(
-                'rounded-md px-3 py-1 text-sm transition-colors',
-                range === r.key ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {error ? <p className="text-sm text-red-400">{error}</p> : null}
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard
-          icon={<CpuIcon className="size-4" />}
-          title="Sunucu kaynakları"
-          description="Botun kullandığı CPU ve RAM, sunucu kapasitesinin yüzdesi"
-          series={RESOURCE}
-          points={points}
-          range={range}
-          loading={loading}
-          hasData={hasData}
-          format={(v) => `%${pctFmt.format(v)}`}
-          latestText={(s) =>
-            latest
-              ? s.key === 'ram'
-                ? `%${pctFmt.format(latest.ram)} · ${intFmt.format(Math.round(latest.ramMb))} MB`
-                : `%${pctFmt.format(latest.cpu)}`
-              : '—'
-          }
-          extra={(p) => (p.ramMb !== null ? `RAM ${intFmt.format(Math.round(p.ramMb))} MB` : null)}
-          minMax={5}
-        />
-        <ChartCard
-          icon={<ActivityIcon className="size-4" />}
-          title="Oyuncu aktivitesi"
-          description={data?.per ? `Her nokta: ${data.per} kaç tane` : 'Oyunlardaki hareket'}
-          series={ACTIVITY}
-          points={points}
-          range={range}
-          loading={loading}
-          hasData={hasData}
-          format={(v) => intFmt.format(v)}
-          latestText={(s) => (latest ? intFmt.format(latest[s.key]) : '—')}
-          minMax={5}
-          integer
-        />
-      </div>
-    </section>
+    <div role="tablist" aria-label="Zaman aralığı" className="inline-flex flex-wrap rounded-lg bg-muted p-0.5">
+      {RANGES.map((r) => (
+        <button
+          key={r.key}
+          role="tab"
+          aria-selected={range === r.key}
+          title={r.hint}
+          onClick={() => setRange(r.key)}
+          className={cn(
+            'rounded-md px-2 py-0.5 text-xs transition-colors',
+            range === r.key ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {r.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
-function ChartCard({icon, title, description, series, points, range, loading, hasData, format, latestText, extra, minMax, integer}) {
+export function ResourceChart() {
+  const {latest, data, error} = useContext(UsageContext);
+  return (
+    <ChartCard
+      icon={<CpuIcon className="size-4" />}
+      title="Sunucu kaynakları"
+      description="Botun kullandığı CPU ve RAM, sunucu kapasitesinin yüzdesi"
+      series={RESOURCE}
+      error={error}
+      format={(v) => `%${pctFmt.format(v)}`}
+      latestText={(s) =>
+        latest
+          ? s.key === 'ram'
+            ? `%${pctFmt.format(latest.ram)} · ${intFmt.format(Math.round(latest.ramMb))} MB`
+            : `%${pctFmt.format(latest.cpu)}`
+          : '—'
+      }
+      extra={(p) => (p.ramMb !== null ? `RAM ${intFmt.format(Math.round(p.ramMb))} MB` : null)}
+      minMax={5}
+    />
+  );
+}
+
+export function ActivityChart() {
+  const {latest, data, error} = useContext(UsageContext);
+  return (
+    <ChartCard
+      icon={<ActivityIcon className="size-4" />}
+      title="Oyuncu aktivitesi"
+      description={data?.per ? `Her nokta: ${data.per} kaç tane` : 'Oyunlardaki hareket'}
+      series={ACTIVITY}
+      error={error}
+      format={(v) => intFmt.format(v)}
+      latestText={(s) => (latest ? intFmt.format(latest[s.key]) : '—')}
+      minMax={5}
+      integer
+    />
+  );
+}
+
+function ChartCard({icon, title, description, series, error, format, latestText, extra, minMax, integer}) {
+  const {range, points, loading, hasData} = useContext(UsageContext);
   const max = Math.max(minMax, ...points.flatMap((p) => series.map((s) => p[s.key] ?? 0)));
   const ticks = niceTicks(max * 1.1, integer);
 
   return (
-    <Card>
+    <Card className="h-full">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           {icon} {title}
         </CardTitle>
         <CardDescription>{description}</CardDescription>
-        {loading ? (
-          <CardAction>
-            <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
-          </CardAction>
-        ) : null}
+        <CardAction className="flex items-center gap-2">
+          {loading ? <Loader2Icon className="size-4 animate-spin text-muted-foreground" /> : null}
+          <RangeTabs />
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-3">
+        {error ? <p className="text-sm text-red-400">{error}</p> : null}
         {/* Lejant: her seri adıyla ve son değeriyle; renk yalnızca işarette, yazı her zaman metin renginde */}
         <ul className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
           {series.map((s) => (
