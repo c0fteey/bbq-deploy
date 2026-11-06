@@ -2,7 +2,6 @@ import Link from 'next/link';
 import {
   ExternalLinkIcon,
   FileTextIcon,
-  FlameIcon,
   GitBranchIcon,
   KeyRoundIcon,
   LogOutIcon,
@@ -367,9 +366,8 @@ export default async function Home({searchParams}) {
 
       <header className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex size-9 items-center justify-center rounded-lg bg-orange-500/15 text-orange-400">
-            <FlameIcon className="size-5" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element -- küçük, sabit logo */}
+          <img src="/logo.png" alt="Barbeque" width={36} height={36} className="size-9 object-contain" />
           <div>
             <h1 className="leading-tight font-semibold">bbq-deploy</h1>
             <p className="text-xs text-muted-foreground">Barbeque bot paneli</p>

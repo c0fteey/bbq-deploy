@@ -1,4 +1,3 @@
-import {FlameIcon} from 'lucide-react';
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card';
 
 export function SetupScreen({title, description, children}) {
@@ -6,9 +5,8 @@ export function SetupScreen({title, description, children}) {
     <main className="flex flex-1 items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <div className="mb-2 flex size-10 items-center justify-center rounded-lg bg-orange-500/15 text-orange-400">
-            <FlameIcon className="size-5" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element -- küçük, sabit logo */}
+          <img src="/logo.png" alt="Barbeque" width={48} height={48} className="mb-2 size-12 object-contain" />
           <CardTitle className="text-lg">{title}</CardTitle>
           {description ? <CardDescription>{description}</CardDescription> : null}
         </CardHeader>
