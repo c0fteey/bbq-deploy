@@ -7,7 +7,7 @@ import {availableParallelism, totalmem} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(process.env.BBQ_CONFIG || join(HERE, 'config.json'), 'utf8'));
 const SITE = config.siteUrl.replace(/\/$/, '');
@@ -438,6 +438,9 @@ const CORES = availableParallelism();
 const TOTAL_MEM = totalmem();
 let bucket = null;
 const pendingMetrics = [];
+// Canlı görünüm: botun son 5 dakikadaki her ölçümü. Veritabanına satır yazılmaz, durum bildirimine eklenir.
+const LIVE_MS = 5 * 60_000;
+const live = [];
 
 function emptyBucket(minute) {
   return {minute, cpuMicros: 0, elapsedMicros: 0, rssSum: 0, samples: 0, moves: 0, rejected: 0, guesses: 0};
@@ -470,6 +473,19 @@ function rollBucket() {
 }
 
 function addSample(m) {
+  const elapsed = num(m.elapsedMicros);
+  const now = Date.now();
+  live.push({
+    t: now,
+    cpu: elapsed ? round((num(m.cpuMicros) / elapsed / CORES) * 100) : 0,
+    ram: round((num(m.rss) / TOTAL_MEM) * 100),
+    ramMb: round(num(m.rss) / 1048576),
+    moves: num(m.moves),
+    rejected: num(m.rejected),
+    guesses: num(m.guesses),
+  });
+  while (live.length && live[0].t < now - LIVE_MS) live.shift();
+
   rollBucket();
   bucket.cpuMicros += num(m.cpuMicros);
   bucket.elapsedMicros += num(m.elapsedMicros);
@@ -544,6 +560,7 @@ async function status() {
     },
     ...(sendLog ? {botLog: botLog.slice(-MAX_LOG_LINES)} : {}),
     ...(pendingMetrics.length ? {metrics: pendingMetrics.slice(0, 120)} : {}),
+    live: live.filter((p) => p.t >= now - LIVE_MS),
   };
 }
 

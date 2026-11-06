@@ -18,7 +18,8 @@ const ACTIVITY = [
 ];
 
 const RANGES = [
-  {key: '1s', label: 'Anlık', refresh: 30_000, hint: 'Son 1 saat, dakikalık'},
+  {key: 'canli', label: 'Canlı', refresh: 5_000, hint: 'Son 5 dakika, 5 saniyede bir yenilenir'},
+  {key: '1s', label: '1 saat', refresh: 30_000, hint: 'Son 1 saat, dakikalık'},
   {key: '24s', label: '24 saat', refresh: 60_000, hint: '10 dakikalık aralıklar'},
   {key: '7g', label: '7 gün', refresh: 300_000, hint: 'Saatlik aralıklar'},
   {key: '30g', label: '30 gün', refresh: 300_000, hint: '3 saatlik aralıklar'},
@@ -37,14 +38,10 @@ const fullFmt = new Intl.DateTimeFormat('tr-TR', {
 const intFmt = new Intl.NumberFormat('tr-TR');
 const pctFmt = new Intl.NumberFormat('tr-TR', {maximumFractionDigits: 1});
 
-const tickFor = (range) => (t) => (range === '1s' || range === '24s' ? hourFmt.format(t) : dayFmt.format(t));
+const secondFmt = new Intl.DateTimeFormat('tr-TR', {hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: TZ});
 
-function bucketText(minutes) {
-  if (minutes === 1) return 'dakikada';
-  if (minutes < 60) return `${minutes} dakikada`;
-  if (minutes === 60) return 'saatte';
-  return `${minutes / 60} saatte`;
-}
+const tickFor = (range) => (t) =>
+  range === 'canli' ? secondFmt.format(t) : range === '1s' || range === '24s' ? hourFmt.format(t) : dayFmt.format(t);
 
 async function fetchMetrics(range) {
   const res = await fetch(`/api/metrics?aralik=${range}`, {cache: 'no-store'});
@@ -53,7 +50,7 @@ async function fetchMetrics(range) {
 }
 
 export function UsageCharts() {
-  const [range, setRange] = useState('1s');
+  const [range, setRange] = useState('canli');
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
@@ -135,7 +132,7 @@ export function UsageCharts() {
         <ChartCard
           icon={<ActivityIcon className="size-4" />}
           title="Oyuncu aktivitesi"
-          description={data ? `Her nokta: ${bucketText(data.bucketMinutes)} kaç tane` : 'Oyunlardaki hareket'}
+          description={data?.per ? `Her nokta: ${data.per} kaç tane` : 'Oyunlardaki hareket'}
           series={ACTIVITY}
           points={points}
           range={range}
@@ -183,9 +180,9 @@ function ChartCard({icon, title, description, series, points, range, loading, ha
         <div className="h-56">
           {!hasData && !loading ? (
             <div className="flex h-full items-center justify-center rounded-lg border border-dashed text-center text-sm text-muted-foreground">
-              Bu aralıkta ölçüm yok.
+              {range === 'canli' ? 'Canlı veri yok: ajan çevrimdışı ya da bot kapalı.' : 'Bu aralıkta ölçüm yok.'}
               <br />
-              Ajan güncellendikten sonra ölçümler dakikada bir gelmeye başlar.
+              {range === 'canli' ? 'Ajan bağlanınca 5 saniye içinde görünür.' : 'Dakikalık ölçümler ajan çalışırken birikir.'}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -213,7 +210,7 @@ function ChartCard({icon, title, description, series, points, range, loading, ha
                 />
                 <Tooltip
                   cursor={{stroke: 'var(--muted-foreground)', strokeWidth: 1, strokeDasharray: '3 3'}}
-                  content={<ChartTooltip series={series} format={format} extra={extra} />}
+                  content={<ChartTooltip series={series} format={format} extra={extra} live={range === 'canli'} />}
                   isAnimationActive={false}
                 />
                 {series.map((s) => (
@@ -254,13 +251,13 @@ function niceTicks(max, integer) {
   return Array.from({length: count + 1}, (_, i) => Math.round(i * step * 100) / 100);
 }
 
-function ChartTooltip({active, payload, label, series, format, extra}) {
+function ChartTooltip({active, payload, label, series, format, extra, live}) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
   const note = extra?.(point);
   return (
     <div className="min-w-44 rounded-lg border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
-      <div className="mb-1.5 text-muted-foreground">{fullFmt.format(label)}</div>
+      <div className="mb-1.5 text-muted-foreground">{(live ? secondFmt : fullFmt).format(label)}</div>
       {series.map((s) => (
         <div key={s.key} className="flex items-center justify-between gap-4 py-0.5">
           <span className="flex items-center gap-2 text-muted-foreground">
@@ -275,7 +272,8 @@ function ChartTooltip({active, payload, label, series, format, extra}) {
   );
 }
 
-function DataTable({points, series, format}) {
+function DataTable({points, series, format, range}) {
+  const timeFmt = range === 'canli' ? secondFmt : fullFmt;
   const rows = points.filter((p) => p.cpu !== null).slice(-12).reverse();
   if (!rows.length) return <p className="pt-2">Veri yok.</p>;
   return (
@@ -293,7 +291,7 @@ function DataTable({points, series, format}) {
       <tbody>
         {rows.map((p) => (
           <tr key={p.t} className="border-t border-border/50">
-            <td className="py-1">{fullFmt.format(p.t)}</td>
+            <td className="py-1">{timeFmt.format(p.t)}</td>
             {series.map((s) => (
               <td key={s.key} className="py-1 text-right text-foreground">
                 {format(p[s.key])}
