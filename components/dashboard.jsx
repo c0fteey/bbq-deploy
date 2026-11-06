@@ -106,8 +106,12 @@ function SortableCard({id, span, children}) {
         title="Sürükleyerek taşı"
         className={cn(
           'absolute top-0.5 left-1/2 z-10 flex h-4 w-10 -translate-x-1/2 cursor-grab touch-none items-center justify-center rounded-full',
-          'text-muted-foreground/40 transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none',
-          'group-hover/sortable:text-muted-foreground active:cursor-grabbing',
+          // Normalde görünmez; kartın üzerine gelince ya da klavyeyle odaklanınca belirir.
+          // Fare olmayan dokunmatik ekranlarda soluk görünür, yoksa sürüklenecek yer bulunamaz.
+          'text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground',
+          'group-hover/sortable:opacity-100 focus-visible:bg-muted focus-visible:opacity-100 focus-visible:outline-none',
+          '[@media(hover:none)]:opacity-40 active:cursor-grabbing',
+          isDragging && 'opacity-100',
         )}
       >
         <GripHorizontalIcon className="size-4" />
