@@ -4,6 +4,8 @@ import {fileURLToPath} from 'node:url';
 const nextConfig = {
   // Panel her istekte canlı veri gösterir; önbellek bileşenlerine gerek yok.
   cacheComponents: false,
+  // Ajan güncelleme dosyası sunucu fonksiyonunda okunur; Vercel paketine dahil edilsin.
+  outputFileTracingIncludes: {'/api/agent/*': ['./agent/**'], '/api/agent/**': ['./agent/**']},
   turbopack: {
     root: fileURLToPath(new URL('.', import.meta.url)),
     rules: {

@@ -1,6 +1,8 @@
 import {addDeploy, db, setSettings} from '@/lib/db';
 import {DEPLOY_KINDS, authAgent, unauthorized} from '@/lib/agent';
 import {installationToken} from '@/lib/github';
+import {agentVersion} from '@/lib/agent-script';
+import {saveMetrics} from '@/lib/metrics';
 
 // VDS'deki ajan birkaç saniyede bir burayı çağırır: durumunu bildirir, varsa yeni işi alır.
 export async function POST(request) {
@@ -8,7 +10,8 @@ export async function POST(request) {
   if (!settings) return unauthorized();
 
   const status = await request.json().catch(() => ({}));
-  const {botLog, ...info} = status;
+  const {botLog, metrics, ...info} = status;
+  if (Array.isArray(metrics) && metrics.length) await saveMetrics(metrics);
   await setSettings({
     agent_seen: Date.now(),
     agent_info: JSON.stringify(info),
@@ -24,7 +27,7 @@ export async function POST(request) {
       args: [Date.now(), '\n[panel] Ajan bu iş bitmeden yeniden başladı.\n'],
     });
   } else {
-    return Response.json({job: null});
+    return Response.json({job: null, agentVersion: agentVersion()});
   }
 
   let {rows: pending} = await c.execute(`SELECT * FROM deploys WHERE status = 'pending' ORDER BY id`);
@@ -35,11 +38,11 @@ export async function POST(request) {
       sql: `SELECT id FROM deploys WHERE kind = 'install' AND status = 'failed' AND finished_at > ?`,
       args: [Date.now() - 5 * 60_000],
     });
-    if (rows.length) return Response.json({job: null}); // son başarısız kurulumdan sonra 5 dk bekle
+    if (rows.length) return Response.json({job: null, agentVersion: agentVersion()}); // son başarısız kurulumdan sonra 5 dk bekle
     await addDeploy({kind: 'install', message: 'İlk kurulum'});
     ({rows: pending} = await c.execute(`SELECT * FROM deploys WHERE status = 'pending' ORDER BY id`));
   }
-  if (!pending.length) return Response.json({job: null});
+  if (!pending.length) return Response.json({job: null, agentVersion: agentVersion()});
 
   // Art arda gelen güncellemelerden sadece en yenisi uygulanır.
   const deploys = pending.filter((d) => DEPLOY_KINDS.includes(d.kind));
@@ -65,10 +68,10 @@ export async function POST(request) {
         sql: `UPDATE deploys SET status = 'failed', finished_at = ?, log = ? WHERE id = ?`,
         args: [Date.now(), `[panel] Repo erişimi alınamadı: ${error.message}`, job.id],
       });
-      return Response.json({job: null});
+      return Response.json({job: null, agentVersion: agentVersion()});
     }
   }
 
   await c.execute({sql: `UPDATE deploys SET status = 'running', started_at = ? WHERE id = ?`, args: [Date.now(), job.id]});
-  return Response.json({job: out});
+  return Response.json({job: out, agentVersion: agentVersion()});
 }

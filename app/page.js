@@ -16,6 +16,7 @@ import {
 import {cancelDeploy, controlBot, deployCommit, logout, newAgentToken, selectRepo} from './actions';
 import {ActionButton} from '@/components/action-button';
 import {AutoRefresh} from '@/components/auto-refresh';
+import {UsageCharts} from '@/components/usage-charts';
 import {GithubIcon} from '@/components/github-icon';
 import {SecretField} from '@/components/secret-field';
 import {SetupScreen} from '@/components/setup-screen';
@@ -264,6 +265,8 @@ export default async function Home({searchParams}) {
           </CardContent>
         </Card>
       </div>
+
+      <UsageCharts />
 
       <Card>
         <CardHeader>
