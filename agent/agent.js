@@ -7,7 +7,7 @@ import {availableParallelism, totalmem} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(process.env.BBQ_CONFIG || join(HERE, 'config.json'), 'utf8'));
 const SITE = config.siteUrl.replace(/\/$/, '');
@@ -443,7 +443,23 @@ const LIVE_MS = 5 * 60_000;
 const live = [];
 
 function emptyBucket(minute) {
-  return {minute, cpuMicros: 0, elapsedMicros: 0, rssSum: 0, samples: 0, moves: 0, rejected: 0, guesses: 0};
+  return {minute, cpuMicros: 0, elapsedMicros: 0, rssSum: 0, samples: 0, moves: 0, rejected: 0, guesses: 0, counts: {}};
+}
+
+// Botun gönderdiği sayaçlar (komut, oyun hamlesi, mesaj...): anahtarları bot belirler, ajan yalnızca toplar.
+const MAX_COUNT_KEYS = 60;
+function cleanCounts(counts) {
+  const out = {};
+  if (!counts || typeof counts !== 'object') return out;
+  for (const [key, value] of Object.entries(counts).slice(0, MAX_COUNT_KEYS)) {
+    if (typeof key === 'string' && key.length <= 60 && Number.isFinite(value) && value > 0) out[key] = value;
+  }
+  return out;
+}
+function addCounts(target, counts) {
+  for (const [key, value] of Object.entries(counts)) {
+    if (key in target || Object.keys(target).length < MAX_COUNT_KEYS) target[key] = (target[key] ?? 0) + value;
+  }
 }
 
 function closeBucket(b) {
@@ -455,6 +471,7 @@ function closeBucket(b) {
     moves: b.moves,
     rejected: b.rejected,
     guesses: b.guesses,
+    counts: b.counts,
   });
   if (pendingMetrics.length > 1440) pendingMetrics.splice(0, pendingMetrics.length - 1440);
 }
@@ -475,6 +492,7 @@ function rollBucket() {
 function addSample(m) {
   const elapsed = num(m.elapsedMicros);
   const now = Date.now();
+  const counts = cleanCounts(m.counts);
   live.push({
     t: now,
     cpu: elapsed ? round((num(m.cpuMicros) / elapsed / CORES) * 100) : 0,
@@ -483,6 +501,7 @@ function addSample(m) {
     moves: num(m.moves),
     rejected: num(m.rejected),
     guesses: num(m.guesses),
+    counts,
   });
   while (live.length && live[0].t < now - LIVE_MS) live.shift();
 
@@ -494,6 +513,7 @@ function addSample(m) {
   bucket.moves += num(m.moves);
   bucket.rejected += num(m.rejected);
   bucket.guesses += num(m.guesses);
+  addCounts(bucket.counts, counts);
 }
 
 // ---------- kendi kendini güncelleme ----------
