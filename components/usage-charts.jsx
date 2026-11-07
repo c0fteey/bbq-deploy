@@ -2,7 +2,7 @@
 
 import {ActivityIcon, CpuIcon, Loader2Icon} from 'lucide-react';
 import {createContext, useContext, useEffect, useState} from 'react';
-import {CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
+import {Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
 import {Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card';
 import {cn} from '@/lib/utils';
 
@@ -132,20 +132,142 @@ export function ResourceChart() {
   );
 }
 
+/** Her aralıkta bir çubuğun kapsadığı süre (dakika); dakikada ortalama hesaplanırken kullanılır. */
+const BUCKET_MINUTES = {canli: 5 / 60, '1s': 1, '24s': 10, '7g': 60, '30g': 180};
+const RANGE_NAMES = {canli: 'son 5 dakikada', '1s': 'son 1 saatte', '24s': 'son 24 saatte', '7g': 'son 7 günde', '30g': 'son 30 günde'};
+const rateFmt = new Intl.NumberFormat('tr-TR', {maximumFractionDigits: 1});
+
+/**
+ * Oyuncu aktivitesi: üstte seçili aralığın toplamları, altta her aralıkta kaç hareket olduğunu gösteren yığılmış çubuklar.
+ * Sayılan olaylar (kelime, ret, tahmin) çizgiyle değil çubukla gösterilir; boş aralıklar sıfırda üst üste binen çizgi yerine boş kalır.
+ */
 export function ActivityChart() {
-  const {latest, data, error} = useContext(UsageContext);
+  const {range, points, loading, hasData, error} = useContext(UsageContext);
+  const measured = points.filter((p) => p.cpu !== null);
+  const totals = Object.fromEntries(ACTIVITY.map((s) => [s.key, measured.reduce((sum, p) => sum + (p[s.key] ?? 0), 0)]));
+  const minutes = measured.length * BUCKET_MINUTES[range];
+  const bars = points.map((p) => ({...p, total: ACTIVITY.reduce((sum, s) => sum + (p[s.key] ?? 0), 0)}));
+  const ticks = niceTicks(Math.max(5, ...bars.map((p) => p.total)) * 1.1, true);
+  const bucketText = {canli: '5 saniye', '1s': '1 dakika', '24s': '10 dakika', '7g': '1 saat', '30g': '3 saat'}[range];
+
   return (
-    <ChartCard
-      icon={<ActivityIcon className="size-4" />}
-      title="Oyuncu aktivitesi"
-      description={data?.per ? `Her nokta: ${data.per} kaç tane` : 'Oyunlardaki hareket'}
-      series={ACTIVITY}
-      error={error}
-      format={(v) => intFmt.format(v)}
-      latestText={(s) => (latest ? intFmt.format(latest[s.key]) : '—')}
-      minMax={5}
-      integer
-    />
+    <Card className="h-full">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ActivityIcon className="size-4" /> Oyuncu aktivitesi
+        </CardTitle>
+        <CardDescription>
+          Oyunlardaki hareket, {RANGE_NAMES[range]} · her çubuk {bucketText}
+        </CardDescription>
+        <CardAction className="flex items-center gap-2">
+          {loading ? <Loader2Icon className="size-4 animate-spin text-muted-foreground" /> : null}
+          <RangeTabs />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {error ? <p className="text-sm text-red-400">{error}</p> : null}
+
+        {/* Toplamlar: renk yalnızca işarette, sayı ve ad metin renginde (lejant da bunlar) */}
+        <ul className="grid grid-cols-3 gap-2">
+          {ACTIVITY.map((s) => (
+            <li key={s.key} className="rounded-lg border bg-muted/30 px-3 py-2">
+              <div className="flex items-start gap-1.5 text-xs leading-tight text-muted-foreground">
+                <span className="mt-0.5 size-2 shrink-0 rounded-sm" style={{background: s.color}} aria-hidden="true" />
+                <span>{s.label}</span>
+              </div>
+              <div className="mt-0.5 text-xl font-semibold tabular-nums">{hasData ? intFmt.format(totals[s.key]) : '—'}</div>
+              <div className="text-xs text-muted-foreground tabular-nums">
+                {hasData && minutes > 0 ? `dakikada ${rateFmt.format(totals[s.key] / minutes)}` : ' '}
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        <div className="h-52">
+          {!hasData && !loading ? (
+            <div className="flex h-full items-center justify-center rounded-lg border border-dashed text-center text-sm text-muted-foreground">
+              {range === 'canli' ? 'Canlı veri yok: ajan çevrimdışı ya da bot kapalı.' : 'Bu aralıkta ölçüm yok.'}
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={bars} margin={{top: 8, right: 8, bottom: 0, left: 0}} barCategoryGap={1}>
+                <CartesianGrid vertical={false} stroke="var(--border)" />
+                <XAxis
+                  dataKey="t"
+                  tickFormatter={tickFor(range)}
+                  tick={{fill: 'var(--muted-foreground)', fontSize: 11}}
+                  axisLine={false}
+                  tickLine={false}
+                  minTickGap={48}
+                />
+                <YAxis
+                  width={36}
+                  domain={[0, ticks.at(-1)]}
+                  ticks={ticks}
+                  tickFormatter={(v) => intFmt.format(v)}
+                  tick={{fill: 'var(--muted-foreground)', fontSize: 11}}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  cursor={{fill: 'var(--muted)', opacity: 0.5}}
+                  content={<ActivityTooltip live={range === 'canli'} />}
+                  isAnimationActive={false}
+                />
+                {ACTIVITY.map((s, i) => (
+                  <Bar
+                    key={s.key}
+                    dataKey={s.key}
+                    name={s.label}
+                    stackId="aktivite"
+                    fill={s.color}
+                    // Yığındaki dilimler arasında kart renginde ince boşluk; en üstteki dilimin köşeleri yuvarlak.
+                    stroke="var(--card)"
+                    strokeWidth={1}
+                    radius={i === ACTIVITY.length - 1 ? [3, 3, 0, 0] : 0}
+                    isAnimationActive={false}
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer select-none">Tablo olarak göster</summary>
+          <DataTable points={points} series={ACTIVITY} format={(v) => intFmt.format(v ?? 0)} range={range} />
+        </details>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ActivityTooltip({active, payload, live}) {
+  if (!active || !payload?.length) return null;
+  const point = payload[0].payload;
+  return (
+    <div className="min-w-48 rounded-lg border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+      <div className="mb-1.5 text-muted-foreground">{(live ? secondFmt : fullFmt).format(point.t)}</div>
+      {point.cpu === null ? (
+        <div className="text-muted-foreground">Bu aralıkta ölçüm yok</div>
+      ) : (
+        <>
+          {ACTIVITY.map((s) => (
+            <div key={s.key} className="flex items-center justify-between gap-4 py-0.5">
+              <span className="flex items-center gap-2 text-muted-foreground">
+                <span className="size-2 rounded-sm" style={{background: s.color}} aria-hidden="true" />
+                {s.label}
+              </span>
+              <span className="font-semibold tabular-nums">{intFmt.format(point[s.key] ?? 0)}</span>
+            </div>
+          ))}
+          <div className="mt-1 flex justify-between border-t pt-1">
+            <span className="text-muted-foreground">Toplam</span>
+            <span className="font-semibold tabular-nums">{intFmt.format(point.total)}</span>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
