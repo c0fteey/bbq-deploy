@@ -7,7 +7,7 @@ import {availableParallelism, totalmem} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(process.env.BBQ_CONFIG || join(HERE, 'config.json'), 'utf8'));
 const SITE = config.siteUrl.replace(/\/$/, '');
@@ -446,8 +446,9 @@ function emptyBucket(minute) {
   return {minute, cpuMicros: 0, elapsedMicros: 0, rssSum: 0, samples: 0, moves: 0, rejected: 0, guesses: 0, counts: {}};
 }
 
-// Botun gönderdiği sayaçlar (komut, oyun hamlesi, mesaj...): anahtarları bot belirler, ajan yalnızca toplar.
-const MAX_COUNT_KEYS = 60;
+// Botun gönderdiği sayaçlar (komut, oyun hamlesi, mesaj, ekonomi, sosyal hareket...): anahtarları bot belirler,
+// ajan yalnızca toplar. 1.4.0: sınır 60'tan 200 anahtara çıktı (85 sosyal hareket ayrı sayılıyor).
+const MAX_COUNT_KEYS = 200;
 function cleanCounts(counts) {
   const out = {};
   if (!counts || typeof counts !== 'object') return out;
@@ -527,10 +528,14 @@ const newer = (a, b) => {
   return false;
 };
 
+// Başarısız güncelleme 30 dk sonra yeniden denenir (geçici bir panel/ağ hatası ajanı eski sürümde bırakmasın).
 let updateFailedFor = null;
+let updateFailedAt = 0;
+const UPDATE_RETRY_MS = 30 * 60_000;
 
 async function selfUpdate(version) {
-  if (!version || !newer(version, VERSION) || updateFailedFor === version) return;
+  if (!version || !newer(version, VERSION)) return;
+  if (updateFailedFor === version && Date.now() - updateFailedAt < UPDATE_RETRY_MS) return;
   if (process.env.BBQ_CONFIG) return; // test ortamı
   log(`Yeni ajan sürümü ${version} indiriliyor…`);
   try {
@@ -551,6 +556,7 @@ async function selfUpdate(version) {
     process.exit(0);
   } catch (error) {
     updateFailedFor = version;
+    updateFailedAt = Date.now();
     log('Ajan güncellenemedi:', error.message);
   }
 }

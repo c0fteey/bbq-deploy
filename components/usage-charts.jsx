@@ -143,6 +143,83 @@ const TOTALS = [
 ];
 const LINES = TOTALS.filter((s) => s.line);
 
+const compactFmt = new Intl.NumberFormat('tr-TR', {notation: 'compact', maximumFractionDigits: 1});
+const sumOf = (points, key) => points.reduce((sum, p) => sum + (p.counts[key] ?? 0), 0);
+
+/**
+ * Kutu grupları (bot 8 Kasım 2026'dan itibaren sayar): ekonomi akışı ve sosyal hareketler.
+ * value: seçili aralıkta toplanmış sayaçlardan kutunun değeri; note: altındaki küçük açıklama.
+ */
+const GROUPS = [
+  {
+    title: 'Ekonomi',
+    tiles: [
+      {label: 'Bahse yatırılan', value: (s) => s('coins.bet'), coins: true, note: 'cf ve slot'},
+      {label: 'Bahiste ödenen', value: (s) => s('coins.paid'), coins: true, note: 'kazananlara geri dönen'},
+      {label: 'Kasanın kârı', value: (s) => s('coins.bet') - s('coins.paid'), coins: true, note: 'yatırılan − ödenen'},
+      {label: 'Daily ile dağıtılan', value: (s) => s('coins.daily'), coins: true},
+      {label: 'Shop harcaması', value: (s) => s('coins.spent'), coins: true, note: (s) => `${intFmt.format(s('shop.buys'))} satın alma`},
+      {label: 'Gönderilen para', value: (s) => s('coins.given'), coins: true, note: 'give / pay'},
+    ],
+  },
+  {
+    title: 'Sosyal',
+    tiles: [
+      {label: 'Evlilik', value: (s) => s('social.marriages'), note: (s) => `${intFmt.format(s('social.divorces'))} boşanma`},
+      {label: 'Kurabiye', value: (s) => s('social.cookies')},
+      {label: 'Dua', value: (s) => s('social.prayers'), note: (s) => `${intFmt.format(s('social.curses'))} lanet`},
+      {label: 'İngilizce komut', value: (s) => s('lang.en'), note: (s) => (s('commands') ? `komutların %${pctFmt.format((s('lang.en') / s('commands')) * 100)}` : ' ')},
+    ],
+  },
+  {
+    title: 'Sağlık',
+    tiles: [
+      {
+        label: 'Ortalama cevap',
+        value: (s) => (s('latency.n') ? Math.round(s('latency.ms') / s('latency.n')) : null),
+        unit: 'ms',
+        note: 'komut gelince → cevap gönderilince',
+      },
+      {label: 'Yavaş komut', value: (s) => s('latency.slow'), note: '1 saniyeden uzun'},
+      {label: 'Hata', value: (s) => s('errors'), note: 'hatayla biten komut / buton'},
+    ],
+  },
+];
+
+/** Bir grubun kutuları: ad, büyük sayı, altında açıklama. Renk yok; sayılar metin renginde. */
+function TileGroup({group, sum, hasData}) {
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium text-muted-foreground">{group.title}</h3>
+      <ul className="grid grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-2">
+        {group.tiles.map((tile) => {
+          const value = hasData ? tile.value(sum) : null;
+          const note = typeof tile.note === 'function' ? (hasData ? tile.note(sum) : ' ') : (tile.note ?? ' ');
+          const shown = value === null ? '—' : tile.coins ? compactFmt.format(value) : intFmt.format(value);
+          return (
+            <li key={tile.label} className="rounded-lg border bg-muted/30 px-3 py-2">
+              <div className="text-xs leading-tight text-muted-foreground">{tile.label}</div>
+              <div className="mt-0.5 text-xl font-semibold tabular-nums" title={value === null ? undefined : intFmt.format(value)}>
+                {shown}
+                {value !== null && tile.unit ? <span className="ml-0.5 text-sm font-normal text-muted-foreground">{tile.unit}</span> : null}
+              </div>
+              <div className="text-xs text-muted-foreground">{note}</div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/** "1.4.0" > "1.3.0" karşılaştırması. */
+const olderThan = (version, min) => {
+  const a = String(version ?? '0').split('.').map(Number);
+  const b = min.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) < (b[i] || 0);
+  return false;
+};
+
 /** Seçili aralıkta prefix ile başlayan sayaçların toplamı, büyükten küçüğe (ör. cmd.profil → profil). */
 function breakdown(points, prefix) {
   const totals = {};
@@ -159,7 +236,9 @@ function breakdown(points, prefix) {
  * altta en çok kullanılan komutlar ve oyunlara göre hamleler. Sayaçlar bottan gelir (Barbeque src/metrics.js).
  */
 export function ActivityChart() {
-  const {range, points, loading, hasData, error} = useContext(UsageContext);
+  const {range, points, loading, hasData, error, data: response} = useContext(UsageContext);
+  // Sayaçlar ajan 1.3.0'dan beri gelir; eski ajan yalnızca CPU/RAM gönderir ve kutular hep 0 görünür.
+  const oldAgent = response?.agentVersion && olderThan(response.agentVersion, '1.3.0');
   const measured = points.filter((p) => p.counts);
   const totals = Object.fromEntries(TOTALS.map((s) => [s.key, measured.reduce((sum, p) => sum + (p.counts[s.key] ?? 0), 0)]));
   const minutes = measured.length * BUCKET_MINUTES[range];
@@ -168,6 +247,8 @@ export function ActivityChart() {
   const ticks = niceTicks(Math.max(5, ...data.flatMap((p) => LINES.map((s) => p[s.key] ?? 0))) * 1.1, true);
   const commands = breakdown(measured, 'cmd.');
   const games = breakdown(measured, 'game.');
+  const actions = breakdown(measured, 'act.');
+  const sum = (key) => sumOf(measured, key);
   const format = (v) => intFmt.format(v);
 
   return (
@@ -186,6 +267,12 @@ export function ActivityChart() {
       </CardHeader>
       <CardContent className="space-y-4">
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
+        {oldAgent ? (
+          <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+            VDS’deki ajan eski ({response.agentVersion}); komut ve oyun sayaçlarını okuyamadığı için kutular 0 görünüyor. Ajan
+            birkaç dakika içinde kendini güncellemezse VDS’de <code>kur.bat</code>’ı yeniden çalıştır.
+          </p>
+        ) : null}
 
         {/* Toplamlar; çizgisi olanların yanında çizgi rengi (lejant). Sayı ve ad metin renginde. */}
         <ul className="grid grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-2">
@@ -257,11 +344,18 @@ export function ActivityChart() {
         </div>
 
         {hasData ? (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Ranking title="En çok kullanılan komutlar" rows={commands} color={TOTALS[0].color} empty="Bu aralıkta komut yok." prefix="bbq " />
             <Ranking title="Oyunlara göre hamleler" rows={games} color={TOTALS[2].color} empty="Bu aralıkta oyun hamlesi yok." />
+            <Ranking title="En çok kullanılan sosyal hareketler" rows={actions} color={TOTALS[0].color} empty="Bu aralıkta sosyal hareket yok." prefix="bbq " />
           </div>
         ) : null}
+
+        <div className="space-y-4">
+          {GROUPS.map((group) => (
+            <TileGroup key={group.title} group={group} sum={sum} hasData={hasData} />
+          ))}
+        </div>
 
         <TableToggle points={data.map((p, i) => ({...p, cpu: points[i].cpu}))} series={LINES} format={(v) => intFmt.format(v ?? 0)} range={range} />
       </CardContent>
