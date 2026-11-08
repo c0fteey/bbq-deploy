@@ -25,6 +25,7 @@ import {Alert, AlertDescription, AlertTitle} from '@/components/ui/alert';
 import {Button, buttonVariants} from '@/components/ui/button';
 import {Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card';
 import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from '@/components/ui/table';
+import {agentVersion} from '@/lib/agent-script';
 import {randomToken} from '@/lib/crypto';
 import {getSettings, isConfigured, listDeploys, setSettings} from '@/lib/db';
 import {duration, firstLine, isRecent, shortSha, timeAgo} from '@/lib/format';
@@ -114,7 +115,7 @@ export default async function Home({searchParams}) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-5">
             <Stat label="Sürüm" mono>
               {agent.sha && settings.repo ? (
                 <a
@@ -132,6 +133,9 @@ export default async function Home({searchParams}) {
             <Stat label="Açık kalma">{online && bot.state === 'running' ? duration(bot.since) : '—'}</Stat>
             <Stat label="Çökme (24 sa)">{online ? (bot.crashes ?? 0) : '—'}</Stat>
             <Stat label="Ajan">{settings.agent_seen ? timeAgo(settings.agent_seen) : 'hiç bağlanmadı'}</Stat>
+            <Stat label="Ajan sürümü">
+              <AgentVersion current={agent.version} latest={agentVersion()} />
+            </Stat>
           </dl>
           <div className="flex flex-wrap gap-2">
             <ActionButton action={controlBot} args={['restart']} variant="outline" success="Yeniden başlatma sıraya alındı">
@@ -398,6 +402,35 @@ export default async function Home({searchParams}) {
         ]}
       />
     </div>
+  );
+}
+
+/** "1.3.0" < "1.4.0" */
+function olderVersion(a, b) {
+  const x = String(a).split('.').map(Number);
+  const y = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0);
+  return false;
+}
+
+/**
+ * VDS'deki ajanın bildirdiği sürüm ve paneldeki en yeni sürümle karşılaştırması. Ajan eskiyse birkaç dakika içinde
+ * kendini günceller (1.1.0 ve sonrası); güncellenmezse kur.bat yeniden çalıştırılmalı.
+ */
+function AgentVersion({current, latest}) {
+  if (!current) return <span className="text-muted-foreground">—</span>;
+  const behind = latest && olderVersion(current, latest);
+  return (
+    <span className="flex flex-col">
+      <span className="font-mono">{current}</span>
+      {behind ? (
+        <span className="text-xs font-normal text-amber-500" title="Ajan birkaç dakika içinde kendini günceller; güncellenmezse VDS'de kur.bat'ı yeniden çalıştır.">
+          {latest} bekleniyor
+        </span>
+      ) : (
+        <span className="text-xs font-normal text-emerald-500">güncel</span>
+      )}
+    </span>
   );
 }
 
