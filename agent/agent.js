@@ -7,7 +7,7 @@ import {availableParallelism, totalmem} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const VERSION = '1.4.0';
+const VERSION = '1.4.1';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(process.env.BBQ_CONFIG || join(HERE, 'config.json'), 'utf8'));
 const SITE = config.siteUrl.replace(/\/$/, '');
@@ -43,6 +43,13 @@ function log(...parts) {
   const line = `[${new Date().toISOString()}] ${parts.join(' ')}`;
   console.log(line);
   writeLog('agent.log', line);
+  // 1.4.1: ajanın kendi mesajları (güncelleme hatası, panele ulaşamama...) panelin "Bot çıktısı"nda da görünsün;
+  // önceden yalnızca VDS'deki agent.log'a yazılıyordu.
+  try {
+    pushBotLog(`[ajan] ${parts.join(' ')}`);
+  } catch {
+    // Dosyanın başında, bot günlüğü hazır olmadan yazılan mesajlar yalnızca agent.log'a gider.
+  }
 }
 
 // ---------- kalıcı durum ----------
