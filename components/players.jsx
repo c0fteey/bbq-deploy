@@ -100,7 +100,10 @@ export function Players({initialId = ''}) {
         <>
           <Card>
             <CardHeader>
-              <CardTitle className="font-mono">{p.userId}</CardTitle>
+              <CardTitle>
+                {p.name ? <span>{p.name} </span> : null}
+                <span className={p.name ? 'font-mono text-sm text-muted-foreground' : 'font-mono'}>{p.name ? `(${p.userId})` : p.userId}</span>
+              </CardTitle>
               <CardDescription>
                 {p.exists ? `Seviye ${p.level.level} · ${num(p.level.current)} / ${num(p.level.needed)} XP` : 'Bu oyuncunun hiç verisi yok.'}
                 {p.rulesAccepted ? '' : ' · Kuralları onaylamamış'}

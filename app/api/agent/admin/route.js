@@ -8,8 +8,14 @@ export async function POST(request) {
   if (!Number.isInteger(id)) return Response.json({ok: false}, {status: 400});
   const c = await db();
   await c.execute({
-    sql: `UPDATE admin_jobs SET status = ?, result = ?, finished_at = ? WHERE id = ? AND status = 'running'`,
-    args: [result.ok ? 'done' : 'failed', JSON.stringify(result).slice(0, 500_000), Date.now(), id],
+    sql: `UPDATE admin_jobs SET status = ?, result = ?, finished_at = ?, user_name = ? WHERE id = ? AND status = 'running'`,
+    args: [
+      result.ok ? 'done' : 'failed',
+      JSON.stringify(result).slice(0, 500_000),
+      Date.now(),
+      typeof result.player?.name === 'string' ? result.player.name.slice(0, 100) : null,
+      id,
+    ],
   });
   return Response.json({ok: true});
 }

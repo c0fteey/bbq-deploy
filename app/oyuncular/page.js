@@ -43,7 +43,7 @@ export default async function PlayersPage({searchParams}) {
   const params = await searchParams;
   const c = await db();
   const {rows} = await c.execute(
-    `SELECT id, action, user_id, params, author, status, created_at FROM admin_jobs WHERE action != 'lookup' ORDER BY id DESC LIMIT 30`,
+    `SELECT id, action, user_id, user_name, params, author, status, created_at FROM admin_jobs WHERE action != 'lookup' ORDER BY id DESC LIMIT 30`,
   );
 
   return (
@@ -73,9 +73,12 @@ export default async function PlayersPage({searchParams}) {
                 {rows.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell>{LABELS[r.action] ?? r.action}</TableCell>
-                    <TableCell className="font-mono text-xs">
+                    <TableCell>
                       <Link className="hover:underline" href={`/oyuncular?id=${r.user_id}`}>
-                        {r.user_id}
+                        {r.user_name ? <span className="font-medium">{r.user_name}</span> : null}{' '}
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {r.user_name ? `(${r.user_id})` : r.user_id}
+                        </span>
                       </Link>
                     </TableCell>
                     <TableCell className="max-w-48 truncate font-mono text-xs">{paramText(r.action, r.params)}</TableCell>
