@@ -10,6 +10,7 @@ import {
   ServerIcon,
   SquareIcon,
   UploadCloudIcon,
+  UsersIcon,
   XIcon,
 } from 'lucide-react';
 import {cancelDeploy, controlBot, deployCommit, logout, newAgentToken, selectRepo} from './actions';
@@ -378,6 +379,9 @@ export default async function Home({searchParams}) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/oyuncular" className={buttonVariants({variant: 'outline', size: 'sm'})}>
+            <UsersIcon /> Oyuncular
+          </Link>
           <span className="hidden items-center gap-1.5 text-sm text-muted-foreground sm:inline-flex">
             <GithubIcon className="size-4" /> {user}
           </span>

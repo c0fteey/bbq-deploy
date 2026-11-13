@@ -7,7 +7,7 @@ import {availableParallelism, totalmem} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const VERSION = '1.4.1';
+const VERSION = '1.5.0';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(process.env.BBQ_CONFIG || join(HERE, 'config.json'), 'utf8'));
 const SITE = config.siteUrl.replace(/\/$/, '');
@@ -182,6 +182,10 @@ function startBot() {
   child.stderr.on('data', onData);
   child.on('message', (message) => {
     if (message?.type === 'metrics') addSample(message);
+    if (message?.type === 'admin-result') {
+      const waiter = adminWaiters.get(message.id);
+      if (waiter) waiter(message);
+    }
   });
 
   // Birkaç saniye ayakta kalırsa "çalışıyor" say.
@@ -219,6 +223,39 @@ function safeStart() {
   } catch (error) {
     log('Bot başlatılamadı:', error.message);
     bot.state = 'crashed';
+  }
+}
+
+// ---------- oyuncu yönetimi (panel) ----------
+
+const ADMIN_TIMEOUT_MS = 10000;
+const adminWaiters = new Map();
+
+/** Paneldeki oyuncu işini IPC ile bota iletir; bot kapalıysa ya da cevap vermezse hata döner. */
+function askBot(job) {
+  const child = bot.child;
+  if (!child || !child.connected || bot.state === 'stopping') return Promise.resolve({ok: false, error: 'Bot şu an çalışmıyor.'});
+  return new Promise((resolve) => {
+    const done = (reply) => {
+      clearTimeout(timer);
+      adminWaiters.delete(job.id);
+      resolve(reply);
+    };
+    const timer = setTimeout(() => done({ok: false, error: 'Bot 10 sn içinde cevap vermedi.'}), ADMIN_TIMEOUT_MS);
+    adminWaiters.set(job.id, done);
+    try {
+      child.send({type: 'admin', id: job.id, action: job.action, userId: job.userId, params: job.params});
+    } catch (error) {
+      done({ok: false, error: `Bota iletilemedi: ${error.message}`});
+    }
+  });
+}
+
+async function runAdminJobs(jobs) {
+  for (const job of jobs) {
+    const reply = await askBot(job);
+    const {type, id, ...result} = reply;
+    await api('/api/agent/admin', {id: job.id, ...result}).catch((e) => log('Panel işi sonucu gönderilemedi:', e.message));
   }
 }
 
@@ -627,9 +664,13 @@ async function main() {
   for (;;) {
     try {
       const payload = await status();
-      const {job, agentVersion} = await api('/api/agent/poll', payload);
+      const {job, agentVersion, admin} = await api('/api/agent/poll', payload);
       sent(payload);
       errors = 0;
+      if (Array.isArray(admin) && admin.length) {
+        await runAdminJobs(admin);
+        continue; // sonuç beklenirken yeni iş gelmiş olabilir; hemen yeniden sor
+      }
       if (!job && !deploying) await selfUpdate(agentVersion);
       if (job) {
         log(`İş alındı: #${job.id} ${job.kind} ${job.sha ?? ''}`);

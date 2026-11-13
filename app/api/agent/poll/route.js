@@ -4,6 +4,30 @@ import {installationToken} from '@/lib/github';
 import {agentVersion} from '@/lib/agent-script';
 import {saveMetrics} from '@/lib/metrics';
 
+/** Bekleyen oyuncu yönetimi işleri (en fazla 5); ajan bunları bota iletir. Takılı kalanlar 1 dk sonra başarısız sayılır. */
+async function takeAdminJobs(c) {
+  const now = Date.now();
+  await c.execute({
+    sql: `UPDATE admin_jobs SET status = 'failed', finished_at = ?, result = ? WHERE status IN ('pending', 'running') AND created_at < ?`,
+    args: [now, JSON.stringify({ok: false, error: 'Ajan 1 dakika içinde uygulamadı.'}), now - 60_000],
+  });
+  const {rows} = await c.execute(`SELECT id, action, user_id, params FROM admin_jobs WHERE status = 'pending' ORDER BY id LIMIT 5`);
+  if (!rows.length) return [];
+  await c.execute({
+    sql: `UPDATE admin_jobs SET status = 'running' WHERE id IN (${rows.map(() => '?').join(',')})`,
+    args: rows.map((r) => r.id),
+  });
+  return rows.map((r) => ({id: Number(r.id), action: r.action, userId: r.user_id, params: safeParse(r.params)}));
+}
+
+function safeParse(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
 // VDS'deki ajan birkaç saniyede bir burayı çağırır: durumunu bildirir, varsa yeni işi alır.
 export async function POST(request) {
   const settings = await authAgent(request);
@@ -42,7 +66,7 @@ export async function POST(request) {
     await addDeploy({kind: 'install', message: 'İlk kurulum'});
     ({rows: pending} = await c.execute(`SELECT * FROM deploys WHERE status = 'pending' ORDER BY id`));
   }
-  if (!pending.length) return Response.json({job: null, agentVersion: agentVersion()});
+  if (!pending.length) return Response.json({job: null, agentVersion: agentVersion(), admin: await takeAdminJobs(c)});
 
   // Art arda gelen güncellemelerden sadece en yenisi uygulanır.
   const deploys = pending.filter((d) => DEPLOY_KINDS.includes(d.kind));
