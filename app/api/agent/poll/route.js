@@ -3,6 +3,7 @@ import {DEPLOY_KINDS, authAgent, unauthorized} from '@/lib/agent';
 import {installationToken} from '@/lib/github';
 import {agentVersion} from '@/lib/agent-script';
 import {saveMetrics} from '@/lib/metrics';
+import {downloadUrl, isBlobConfigured} from '@/lib/backups';
 
 /** Bekleyen oyuncu yönetimi işleri (en fazla 5); ajan bunları bota iletir. Takılı kalanlar 1 dk sonra başarısız sayılır. */
 async function takeAdminJobs(c) {
@@ -36,11 +37,15 @@ export async function POST(request) {
   const status = await request.json().catch(() => ({}));
   const {botLog, metrics, ...info} = status;
   if (Array.isArray(metrics) && metrics.length) await saveMetrics(metrics);
+  // "Şimdi yedek al" isteği bir kez iletilir. Blob bağlı değilse ajan yedek almaya hiç çalışmaz.
+  const backupNow = settings.backup_requested === '1';
   await setSettings({
     agent_seen: Date.now(),
     agent_info: JSON.stringify(info),
     ...(Array.isArray(botLog) ? {bot_log: JSON.stringify(botLog.slice(-150))} : {}),
+    ...(backupNow ? {backup_requested: null} : {}),
   });
+  const extra = {agentVersion: agentVersion(), backups: isBlobConfigured(), ...(backupNow ? {backupNow: true} : {})};
 
   const c = await db();
 
@@ -51,7 +56,7 @@ export async function POST(request) {
       args: [Date.now(), '\n[panel] Ajan bu iş bitmeden yeniden başladı.\n'],
     });
   } else {
-    return Response.json({job: null, agentVersion: agentVersion()});
+    return Response.json({job: null, ...extra});
   }
 
   let {rows: pending} = await c.execute(`SELECT * FROM deploys WHERE status = 'pending' ORDER BY id`);
@@ -62,11 +67,11 @@ export async function POST(request) {
       sql: `SELECT id FROM deploys WHERE kind = 'install' AND status = 'failed' AND finished_at > ?`,
       args: [Date.now() - 5 * 60_000],
     });
-    if (rows.length) return Response.json({job: null, agentVersion: agentVersion()}); // son başarısız kurulumdan sonra 5 dk bekle
+    if (rows.length) return Response.json({job: null, ...extra}); // son başarısız kurulumdan sonra 5 dk bekle
     await addDeploy({kind: 'install', message: 'İlk kurulum'});
     ({rows: pending} = await c.execute(`SELECT * FROM deploys WHERE status = 'pending' ORDER BY id`));
   }
-  if (!pending.length) return Response.json({job: null, agentVersion: agentVersion(), admin: await takeAdminJobs(c)});
+  if (!pending.length) return Response.json({job: null, ...extra, admin: await takeAdminJobs(c)});
 
   // Art arda gelen güncellemelerden sadece en yenisi uygulanır.
   const deploys = pending.filter((d) => DEPLOY_KINDS.includes(d.kind));
@@ -92,10 +97,23 @@ export async function POST(request) {
         sql: `UPDATE deploys SET status = 'failed', finished_at = ?, log = ? WHERE id = ?`,
         args: [Date.now(), `[panel] Repo erişimi alınamadı: ${error.message}`, job.id],
       });
-      return Response.json({job: null, agentVersion: agentVersion()});
+      return Response.json({job: null, ...extra});
+    }
+  }
+
+  if (job.kind === 'restore') {
+    // Geri yüklenecek yedek: message sütununda yolu durur. İndirme adresi 30 dk geçerli.
+    try {
+      out.backup = {pathname: job.sha, url: await downloadUrl(job.sha, 30)};
+    } catch (error) {
+      await c.execute({
+        sql: `UPDATE deploys SET status = 'failed', finished_at = ?, log = ? WHERE id = ?`,
+        args: [Date.now(), `[panel] Yedeğin indirme adresi alınamadı: ${error.message}`, job.id],
+      });
+      return Response.json({job: null, ...extra});
     }
   }
 
   await c.execute({sql: `UPDATE deploys SET status = 'running', started_at = ? WHERE id = ?`, args: [Date.now(), job.id]});
-  return Response.json({job: out, agentVersion: agentVersion()});
+  return Response.json({job: out, ...extra});
 }

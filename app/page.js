@@ -11,9 +11,11 @@ import {
   SquareIcon,
   UploadCloudIcon,
   UsersIcon,
+  ArchiveIcon,
+  GaugeIcon,
   XIcon,
 } from 'lucide-react';
-import {cancelDeploy, controlBot, deployCommit, logout, newAgentToken, selectRepo} from './actions';
+import {cancelDeploy, controlBot, deployCommit, logout, newAgentToken, runLoadTest, selectRepo} from './actions';
 import {ActionButton} from '@/components/action-button';
 import {AutoRefresh} from '@/components/auto-refresh';
 import {Dashboard} from '@/components/dashboard';
@@ -159,6 +161,14 @@ export default async function Home({searchParams}) {
             )}
             <ActionButton action={deployCommit} args={[null]} success="Son sürüm sıraya alındı">
               <UploadCloudIcon /> Son sürümü yükle
+            </ActionButton>
+            <ActionButton
+              action={runLoadTest}
+              variant="outline"
+              confirm="VDS'te yük testi çalışsın mı? Sahte kullanıcılar ve geçici bir veritabanıyla çalışır, canlı veriye dokunmaz; birkaç dakika sürebilir ve bu sırada bot biraz yavaşlayabilir."
+              success="Yük testi sıraya alındı, sonucu güncelleme kaydında görünecek"
+            >
+              <GaugeIcon /> Yük testi
             </ActionButton>
           </div>
           {!online ? (
@@ -381,6 +391,9 @@ export default async function Home({searchParams}) {
         <div className="flex items-center gap-2">
           <Link href="/oyuncular" className={buttonVariants({variant: 'outline', size: 'sm'})}>
             <UsersIcon /> Oyuncular
+          </Link>
+          <Link href="/yedekler" className={buttonVariants({variant: 'outline', size: 'sm'})}>
+            <ArchiveIcon /> Yedekler
           </Link>
           <span className="hidden items-center gap-1.5 text-sm text-muted-foreground sm:inline-flex">
             <GithubIcon className="size-4" /> {user}

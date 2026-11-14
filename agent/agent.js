@@ -2,12 +2,13 @@
 // Bağımlılığı yok, Node 22+ ile çalışır.
 import {spawn, spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync} from 'node:fs';
-import {availableParallelism, totalmem} from 'node:os';
+import {appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
+import {availableParallelism, setPriority, totalmem} from 'node:os';
+import {gunzipSync, gzipSync} from 'node:zlib';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const VERSION = '1.5.0';
+const VERSION = '1.6.0';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(process.env.BBQ_CONFIG || join(HERE, 'config.json'), 'utf8'));
 const SITE = config.siteUrl.replace(/\/$/, '');
@@ -20,6 +21,10 @@ const NPM_CLI = join(NODE_DIR, 'node_modules', 'npm', 'bin', 'npm-cli.js');
 const POLL_MS = config.pollMs ?? 3000;
 const HEALTH_MS = config.healthMs ?? 15000;
 const STOP_TIMEOUT_MS = 10000;
+// Botun veritabanı (bot klasörüne göre). Yedek ve geri yükleme bunu kullanır.
+const DB_FILE = join(BOT_DIR, config.dbPath || join('data', 'barbeque.db'));
+const BACKUP_EVERY_MS = 60 * 60_000;
+const BACKUP_RETRY_MS = 10 * 60_000;
 
 mkdirSync(LOG_DIR, {recursive: true});
 
@@ -81,10 +86,11 @@ async function api(path, body) {
 // ---------- komut çalıştırma ----------
 
 /** Komutu çalıştırır, çıktısını out() ile aktarır. Hata kodunda fırlatır. */
-function run(cmd, args, {out = () => {}, cwd = BOT_DIR, env = childEnv, quiet = false} = {}) {
+function run(cmd, args, {out = () => {}, cwd = BOT_DIR, env = childEnv, quiet = false, onSpawn} = {}) {
   return new Promise((resolve, reject) => {
     if (!quiet) out(`> ${[cmd === process.execPath ? 'node' : cmd === GIT ? 'git' : cmd, ...args].join(' ')}`);
     const child = spawn(cmd, args, {cwd, env, windowsHide: true});
+    onSpawn?.(child);
     let stdout = '';
     const onData = (chunk) => {
       const text = chunk.toString();
@@ -300,6 +306,145 @@ function waitHealthy() {
   });
 }
 
+// ---------- veritabanı yedeği ----------
+// 1.6.0: Ajan saatte bir botun veritabanının tutarlı bir kopyasını alır (VACUUM INTO; bot durmaz, SQLite WAL
+// modunda ikinci bir bağlantı okuyabilir), sıkıştırır ve panelin verdiği imzalı adrese yükler (Vercel Blob).
+// Yedekler VDS'ten bağımsızdır; saklama planını panel uygular.
+
+let backupsEnabled = false;
+let backingUp = false;
+let backupRetryAt = 0;
+
+async function snapshotDatabase() {
+  const {DatabaseSync} = await import('node:sqlite');
+  const tmp = join(HERE, 'backup-tmp.db');
+  rmSync(tmp, {force: true});
+  const source = new DatabaseSync(DB_FILE);
+  try {
+    source.exec('PRAGMA busy_timeout = 10000');
+    source.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+  } finally {
+    source.close();
+  }
+  try {
+    return readFileSync(tmp);
+  } finally {
+    rmSync(tmp, {force: true});
+  }
+}
+
+/** Yedeği alır ve yükler; başarısızsa fırlatır. */
+async function uploadBackup(reason) {
+  if (!existsSync(DB_FILE)) throw new Error(`Veritabanı dosyası yok: ${DB_FILE}`);
+  const raw = await snapshotDatabase();
+  const gz = gzipSync(raw, {level: 9});
+  const target = await api('/api/agent/backup', {step: 'start', reason, size: gz.length});
+  if (!target?.url) throw new Error(target?.error || 'Panel yükleme adresi vermedi.');
+  const res = await fetch(target.url, {method: 'PUT', headers: target.headers, body: gz, signal: AbortSignal.timeout(5 * 60_000)});
+  if (!res.ok) throw new Error(`Depo yüklemeyi reddetti (${res.status}): ${(await res.text().catch(() => '')).slice(0, 300)}`);
+  await api('/api/agent/backup', {step: 'done', pathname: target.pathname, size: gz.length, rawSize: raw.length});
+  return {pathname: target.pathname, raw: raw.length, size: gz.length};
+}
+
+const kb = (n) => (n < 1048576 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1048576).toFixed(1)} MB`);
+
+async function backup(reason) {
+  if (backingUp) return;
+  backingUp = true;
+  try {
+    const r = await uploadBackup(reason);
+    state.lastBackupAt = Date.now();
+    saveState();
+    backupRetryAt = 0;
+    log(`Yedek alındı (${reason}): ${kb(r.raw)} → ${kb(r.size)}`);
+  } catch (error) {
+    backupRetryAt = Date.now() + BACKUP_RETRY_MS;
+    log('Yedek alınamadı:', error.message);
+    await api('/api/agent/backup', {step: 'error', error: error.message}).catch(() => {});
+  } finally {
+    backingUp = false;
+  }
+}
+
+function backupDue() {
+  if (!backupsEnabled || deploying || backingUp || !existsSync(DB_FILE)) return false;
+  if (Date.now() < backupRetryAt) return false;
+  return Date.now() - (state.lastBackupAt ?? 0) >= BACKUP_EVERY_MS;
+}
+
+/** Paneldeki yedeği indirir, doğrular; şu anki veriyi yedekler, botu durdurup dosyayı değiştirir ve botu başlatır. */
+async function restore(job, out) {
+  const {pathname, url} = job.backup ?? {};
+  if (!url) throw new Error('Panel yedeğin indirme adresini vermedi.');
+  out(`Yedek indiriliyor: ${pathname}`);
+  const res = await fetch(url, {signal: AbortSignal.timeout(5 * 60_000)});
+  if (!res.ok) throw new Error(`Yedek indirilemedi (${res.status}).`);
+  const raw = gunzipSync(Buffer.from(await res.arrayBuffer()));
+  if (raw.subarray(0, 16).toString('latin1') !== 'SQLite format 3\0') throw new Error('İndirilen dosya bir SQLite veritabanı değil.');
+
+  mkdirSync(dirname(DB_FILE), {recursive: true});
+  const incoming = DB_FILE + '.restore';
+  writeFileSync(incoming, raw);
+  const {DatabaseSync} = await import('node:sqlite');
+  const check = new DatabaseSync(incoming);
+  try {
+    const result = check.prepare('PRAGMA integrity_check').get();
+    if (Object.values(result ?? {})[0] !== 'ok') throw new Error('Yedek dosyası bozuk (integrity_check).');
+  } finally {
+    check.close();
+  }
+  out(`Yedek sağlam (${kb(raw.length)}).`);
+
+  if (existsSync(DB_FILE)) {
+    out('Şu anki veri önce yedekleniyor…');
+    try {
+      await uploadBackup('geri-yukleme-oncesi');
+      out('Şu anki veri panele yedeklendi.');
+    } catch (error) {
+      out(`Şu anki veri panele yedeklenemedi (${error.message}); VDS'te yerel kopyası tutulacak.`);
+    }
+  }
+
+  out('Bot durduruluyor…');
+  await stopBot();
+  // Eski dosya silinmez, yanına adı değiştirilerek konur (WAL dosyalarıyla birlikte).
+  const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+  for (const suffix of ['', '-wal', '-shm']) {
+    if (existsSync(DB_FILE + suffix)) renameSync(DB_FILE + suffix, `${DB_FILE}.geri-yukleme-oncesi-${stamp}${suffix}`);
+  }
+  renameSync(incoming, DB_FILE);
+  out(`Veritabanı değiştirildi. Eski dosya: ${DB_FILE}.geri-yukleme-oncesi-${stamp}`);
+
+  if (!state.desired) {
+    out('Bot panelden durdurulmuş olduğu için başlatılmadı.');
+    return {status: 'success'};
+  }
+  startBot();
+  const ok = await waitHealthy();
+  out(ok ? 'Bot yedekle birlikte ayakta.' : 'Bot açılışta kapandı, yeniden denenecek.');
+  return {status: ok ? 'success' : 'failed'};
+}
+
+// ---------- yük testi ----------
+// Panelden istenir; botun scripts/loadTest.js'ini VDS'te çalıştırır. Sahte kullanıcılar ve geçici bir veritabanı
+// dosyası kullanır, canlı veriye dokunmaz. Canlı bot yavaşlamasın diye düşük öncelikte çalışır.
+
+async function loadTest(out) {
+  const script = join(BOT_DIR, 'scripts', 'loadTest.js');
+  if (!existsSync(script)) throw new Error('Botta scripts/loadTest.js yok.');
+  const lower = (child) => {
+    try {
+      setPriority(child.pid, 10);
+    } catch {}
+  };
+  const runs = [[], ['1000,2000', 'battle']];
+  for (const args of runs) {
+    out(`Yük testi: ${args.length ? args.join(' ') : '1000, 2000, 5000 kişi, karışık komutlar'}`);
+    await run(process.execPath, ['--disable-warning=ExperimentalWarning', script, ...args], {out, onSpawn: lower});
+  }
+  return {status: 'success'};
+}
+
 // ---------- güncelleme ----------
 
 let deploying = false;
@@ -450,6 +595,10 @@ async function runJob(job) {
       await stopBot();
       out('Bot durduruldu. Panelden "Başlat" diyene kadar kapalı kalır.');
       result = {status: 'success'};
+    } else if (job.kind === 'restore') {
+      result = await restore(job, out);
+    } else if (job.kind === 'loadtest') {
+      result = await loadTest(out);
     } else if (job.kind === 'start') {
       state.desired = true;
       saveState();
@@ -664,12 +813,21 @@ async function main() {
   for (;;) {
     try {
       const payload = await status();
-      const {job, agentVersion, admin} = await api('/api/agent/poll', payload);
+      const {job, agentVersion, admin, backups, backupNow} = await api('/api/agent/poll', payload);
       sent(payload);
       errors = 0;
+      backupsEnabled = Boolean(backups);
+      if (backupsEnabled && backupNow && !deploying) {
+        await backup('elle');
+        continue;
+      }
       if (Array.isArray(admin) && admin.length) {
         await runAdminJobs(admin);
         continue; // sonuç beklenirken yeni iş gelmiş olabilir; hemen yeniden sor
+      }
+      if (!job && backupDue()) {
+        await backup('saatlik');
+        continue;
       }
       if (!job && !deploying) await selfUpdate(agentVersion);
       if (job) {

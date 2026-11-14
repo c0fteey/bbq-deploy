@@ -11,6 +11,8 @@ import {
   DownloadIcon,
   XCircleIcon,
   GitCommitHorizontalIcon,
+  ArchiveRestoreIcon,
+  GaugeIcon,
 } from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {cn} from '@/lib/utils';
@@ -42,6 +44,8 @@ const KIND = {
   restart: {label: 'Yeniden başlatma', icon: RotateCwIcon},
   stop: {label: 'Durdurma', icon: SquareIcon},
   start: {label: 'Başlatma', icon: PlayIcon},
+  restore: {label: 'Yedekten geri yükleme', icon: ArchiveRestoreIcon},
+  loadtest: {label: 'Yük testi', icon: GaugeIcon},
 };
 
 export function KindLabel({kind}) {

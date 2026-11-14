@@ -34,6 +34,13 @@ export async function deployCommit(fromId) {
   revalidatePath('/');
 }
 
+/** VDS'te yük testi: sahte kullanıcılar ve geçici bir veritabanı dosyasıyla; canlı veriye dokunmaz. */
+export async function runLoadTest() {
+  const user = await requireUser();
+  await addDeploy({kind: 'loadtest', message: 'Yük testi (1000, 2000, 5000 kişi)', author: user});
+  revalidatePath('/');
+}
+
 export async function cancelDeploy(id) {
   await requireUser();
   const c = await db();
