@@ -8,7 +8,7 @@ import {gunzipSync, gzipSync} from 'node:zlib';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const VERSION = '1.6.1';
+const VERSION = '1.6.2';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(process.env.BBQ_CONFIG || join(HERE, 'config.json'), 'utf8'));
 const SITE = config.siteUrl.replace(/\/$/, '');
@@ -28,9 +28,14 @@ const BACKUP_RETRY_MS = 10 * 60_000;
 
 mkdirSync(LOG_DIR, {recursive: true});
 
+// 1.6.2: Botun görselleri (savaş, profil) Node'un arka plan iş parçacıklarında sıkıştırılır; Node varsayılan olarak
+// 4 tane açar. VDS'te daha fazla çekirdek varsa hepsi kullanılsın (en az 4, en çok 16). Yük testi de aynı ayarla çalışır.
+const THREADS = Math.min(16, Math.max(4, availableParallelism()));
+
 // Alt süreçler node, npm ve git'i bulabilsin.
 const childEnv = {
   ...process.env,
+  UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE || String(THREADS),
   PATH: [NODE_DIR, dirname(GIT), process.env.PATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
 };
 
@@ -797,6 +802,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
   log(`bbq-deploy ajanı ${VERSION} başladı. Panel: ${SITE}, bot klasörü: ${BOT_DIR}`);
+  log(`VDS: ${availableParallelism()} çekirdek, ${Math.round(TOTAL_MEM / 1073741824)} GB bellek; görsel iş parçacığı: ${childEnv.UV_THREADPOOL_SIZE}`);
   killOrphan();
   cachedSha = await headSha();
   if (state.desired && existsSync(join(BOT_DIR, 'package.json')) && existsSync(join(BOT_DIR, 'node_modules'))) {
