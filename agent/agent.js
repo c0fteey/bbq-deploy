@@ -8,7 +8,7 @@ import {gunzipSync, gzipSync} from 'node:zlib';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const VERSION = '1.6.2';
+const VERSION = '1.7.0';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(process.env.BBQ_CONFIG || join(HERE, 'config.json'), 'utf8'));
 const SITE = config.siteUrl.replace(/\/$/, '');
@@ -140,8 +140,8 @@ const bot = {
   exitWaiters: [],
 };
 
-function startArgs() {
-  const pkg = JSON.parse(readFileSync(join(BOT_DIR, 'package.json'), 'utf8'));
+function startArgs(dir = BOT_DIR) {
+  const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
   const script = pkg.scripts?.start || '';
   const parts = script.trim().split(/\s+/);
   if (parts[0] !== 'node') throw new Error(`package.json "start" komutu "node ..." ile başlamalı: ${script}`);
@@ -157,8 +157,8 @@ function killTree(pid) {
 }
 
 /** Ajan yeniden başladıysa önceki bot süreci hâlâ açık olabilir; iki bot aynı anda çalışmasın. */
-function killOrphan() {
-  const pidFile = join(HERE, 'bot.pid');
+function killOrphan(name = 'bot.pid') {
+  const pidFile = join(HERE, name);
   if (!existsSync(pidFile)) return;
   const pid = Number(readFileSync(pidFile, 'utf8'));
   if (pid) {
@@ -309,6 +309,211 @@ function waitHealthy() {
     };
     bot.exitWaiters.push(onExit);
   });
+}
+
+// ---------- destek botu ----------
+// 1.7.0: Barbeque destek sunucusunun botu (c0fteey/barbeque-destek, guard). Ayrı klasörde (C:\Barbeque\destek) ayrı
+// süreç olarak çalışır; token ve ayarlar panelden gelir (Destek sayfası). Panel repo push'unda "destek" işi açar,
+// ajan çeker, kurar, yeniden başlatır. Çıktısı panelde "[destek]" önekiyle ve logs\destek.log'da; izlemek için
+// C:\Barbeque\destek-izle.cmd ayrı bir pencere açar (ajan SYSTEM olarak çalıştığı için kendi penceresi görünmez).
+
+const DESTEK_DIR = config.destekDir || join(dirname(BOT_DIR), 'destek');
+const DESTEK_LOG = join(LOG_DIR, 'destek.log');
+const destek = {child: null, state: 'stopped', since: null, crashTimes: [], restartTimer: null, exitWaiters: [], config: null, configKey: 'null', sha: null};
+
+function destekLine(line) {
+  writeLog('destek.log', `[${new Date().toLocaleString('tr-TR', {hour12: false})}] ${line}`);
+  pushBotLog(`[destek] ${line}`);
+}
+
+const destekInstalled = () => existsSync(join(DESTEK_DIR, 'package.json')) && existsSync(join(DESTEK_DIR, 'node_modules'));
+const destekRepo = () => existsSync(join(DESTEK_DIR, '.git'));
+
+async function destekSha() {
+  if (!destekRepo()) return null;
+  return git(['rev-parse', 'HEAD'], {quiet: true, cwd: DESTEK_DIR}).catch(() => null);
+}
+
+/** Ayrı pencerede izlemek için C:\Barbeque\destek-izle.cmd (çift tıkla). */
+function writeDestekViewer() {
+  try {
+    if (!existsSync(DESTEK_LOG)) appendFileSync(DESTEK_LOG, '');
+    const file = join(dirname(BOT_DIR), 'destek-izle.cmd');
+    const text = [
+      '@echo off',
+      'title Barbeque Destek',
+      'chcp 65001 >nul',
+      'echo Barbeque Destek botunun ciktisi (kapatmak icin pencereyi kapat; bot calismaya devam eder).',
+      `powershell -NoProfile -Command "Get-Content -LiteralPath '${DESTEK_LOG}' -Encoding UTF8 -Tail 50 -Wait"`,
+      '',
+    ].join('\r\n');
+    if (!existsSync(file) || readFileSync(file, 'utf8') !== text) writeFileSync(file, text);
+  } catch (error) {
+    log('Destek izleme dosyası yazılamadı:', error.message);
+  }
+}
+
+function startDestek() {
+  if (destek.child || !destek.config?.token || !destekInstalled()) return;
+  clearTimeout(destek.restartTimer);
+  destek.restartTimer = null;
+  let args;
+  try {
+    args = startArgs(DESTEK_DIR);
+  } catch (error) {
+    destekLine(`Başlatılamadı: ${error.message}`);
+    return;
+  }
+  const child = spawn(process.execPath, args, {
+    cwd: DESTEK_DIR,
+    env: {
+      ...childEnv,
+      MICUP_TOKEN: destek.config.token,
+      LOG_CHANNEL_ID: destek.config.logChannel || '',
+      ALLOWED_DOMAINS: destek.config.allowed || 'micup.gg',
+    },
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    windowsHide: true,
+  });
+  destek.child = child;
+  destek.state = 'starting';
+  destek.since = Date.now();
+  writeFileSync(join(HERE, 'destek.pid'), String(child.pid));
+  destekLine(`--- destek botu başlatıldı (pid ${child.pid}) ---`);
+  const onData = (chunk) => {
+    for (const line of chunk.toString().split(/\r?\n/)) if (line.trim()) destekLine(line);
+  };
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+  const ready = setTimeout(() => {
+    if (destek.child === child) destek.state = 'running';
+  }, 5000);
+  child.on('exit', (code, signal) => {
+    clearTimeout(ready);
+    if (destek.child !== child) return;
+    destek.child = null;
+    destekLine(`--- destek botu kapandı (kod ${code ?? signal}) ---`);
+    destek.exitWaiters.splice(0).forEach((w) => w(code));
+    if (destek.state === 'stopping' || !destek.config?.token) {
+      destek.state = 'stopped';
+      return;
+    }
+    const now = Date.now();
+    destek.crashTimes = destek.crashTimes.filter((t) => now - t < 24 * 3600_000).concat(now);
+    const recent = destek.crashTimes.filter((t) => now - t < 10 * 60_000).length;
+    const wait = Math.min(60_000, 2000 * 2 ** Math.min(recent - 1, 5));
+    destek.state = 'crashed';
+    destekLine(`Destek botu çöktü, ${wait / 1000} sn sonra yeniden başlatılacak.`);
+    destek.restartTimer = setTimeout(() => {
+      destek.restartTimer = null;
+      startDestek();
+    }, wait);
+  });
+}
+
+async function stopDestek() {
+  clearTimeout(destek.restartTimer);
+  destek.restartTimer = null;
+  const child = destek.child;
+  if (!child) {
+    destek.state = 'stopped';
+    return;
+  }
+  destek.state = 'stopping';
+  const exited = new Promise((resolve) => destek.exitWaiters.push(resolve));
+  try {
+    if (child.connected) child.send('shutdown');
+    else child.kill();
+  } catch {}
+  const timeout = new Promise((resolve) => setTimeout(() => resolve('timeout'), STOP_TIMEOUT_MS));
+  if ((await Promise.race([exited, timeout])) === 'timeout') {
+    destekLine('--- destek botu zamanında kapanmadı, zorla kapatılıyor ---');
+    killTree(child.pid);
+    await exited;
+  }
+}
+
+/** Destek botu 10 sn açık kalırsa true. */
+function destekHealthy() {
+  return new Promise((resolve) => {
+    if (!destek.child) return resolve(false);
+    const timer = setTimeout(() => {
+      const i = destek.exitWaiters.indexOf(onExit);
+      if (i !== -1) destek.exitWaiters.splice(i, 1);
+      resolve(Boolean(destek.child));
+    }, 10_000);
+    const onExit = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    destek.exitWaiters.push(onExit);
+  });
+}
+
+/** Panelin her yanıtındaki destek ayarları: değiştiyse bot yeniden başlar, token silindiyse durur. */
+async function syncDestek(cfg) {
+  const key = JSON.stringify(cfg ?? null);
+  if (key !== destek.configKey) {
+    const first = destek.configKey === 'null' && !destek.child;
+    destek.configKey = key;
+    destek.config = cfg ?? null;
+    if (destek.child) {
+      destekLine(cfg ? 'Ayarlar değişti, destek botu yeniden başlatılıyor.' : 'Token kaldırıldı, destek botu durduruluyor.');
+      await stopDestek();
+    } else if (cfg && !first) destekLine('Ayarlar alındı.');
+  }
+  if (destek.config?.token && !destek.child && !destek.restartTimer && !deploying) startDestek();
+}
+
+async function deployDestek(job, out) {
+  const {url, branch, token} = job.git;
+  const auth = Buffer.from(`x-access-token:${token}`).toString('base64');
+  const fetchArgs = ['-c', `http.extraHeader=Authorization: Basic ${auth}`, 'fetch', '--no-tags', url];
+  const opts = {out, cwd: DESTEK_DIR};
+  mkdirSync(DESTEK_DIR, {recursive: true});
+  if (!destekRepo()) {
+    out(`Destek botu ilk kez kuruluyor: ${DESTEK_DIR}`);
+    await git(['init', '-q'], opts);
+  }
+  const prev = await destekSha();
+  out(`Şu anki sürüm: ${prev ? prev.slice(0, 7) : 'yok'}`);
+  await git([...fetchArgs, branch], opts);
+  const target = job.sha || (await git(['rev-parse', 'FETCH_HEAD'], {quiet: true, cwd: DESTEK_DIR}));
+  const has = await git(['cat-file', '-e', `${target}^{commit}`], {quiet: true, cwd: DESTEK_DIR}).then(() => true, () => false);
+  if (!has) await git([...fetchArgs, target], opts);
+  out(`Hedef sürüm: ${target.slice(0, 7)}`);
+  out('Destek botu durduruluyor…');
+  await stopDestek();
+  await git(['reset', '--hard', target], opts);
+  const changed = prev ? (await git(['diff', '--name-only', prev, target], {quiet: true, cwd: DESTEK_DIR})).split('\n').filter(Boolean) : null;
+  if (!existsSync(join(DESTEK_DIR, 'node_modules')) || changed === null || changed.some((f) => f === 'package.json' || f === 'package-lock.json')) {
+    await npm(['ci', '--no-audit', '--no-fund'], opts);
+  } else out('Paketler değişmedi, npm ci atlandı.');
+  destek.sha = target;
+  if (!destek.config?.token) {
+    out('Kuruldu. Panelde destek botunun token\'ı girilmediği için başlatılmadı.');
+    return {status: 'success', sha: target};
+  }
+  startDestek();
+  const ok = await destekHealthy();
+  out(ok ? 'Destek botu ayakta.' : 'Destek botu açılışta kapandı. Son çıktı panelde "[destek]" satırlarında.');
+  return {status: ok ? 'success' : 'failed', sha: target};
+}
+
+async function restartDestek(out) {
+  await stopDestek();
+  if (!destek.config?.token) {
+    out('Panelde token girilmemiş, destek botu başlatılmadı.');
+    return {status: 'failed'};
+  }
+  if (!destekInstalled()) {
+    out('Destek botu kurulu değil; önce "Güncelle" ile kurulmalı.');
+    return {status: 'failed'};
+  }
+  startDestek();
+  const ok = await destekHealthy();
+  out(ok ? 'Destek botu ayakta.' : 'Destek botu açılışta kapandı.');
+  return {status: ok ? 'success' : 'failed'};
 }
 
 // ---------- veritabanı yedeği ----------
@@ -600,6 +805,10 @@ async function runJob(job) {
       await stopBot();
       out('Bot durduruldu. Panelden "Başlat" diyene kadar kapalı kalır.');
       result = {status: 'success'};
+    } else if (job.kind === 'destek') {
+      result = await deployDestek(job, out);
+    } else if (job.kind === 'destek-restart') {
+      result = await restartDestek(out);
     } else if (job.kind === 'restore') {
       result = await restore(job, out);
     } else if (job.kind === 'loadtest') {
@@ -623,6 +832,7 @@ async function runJob(job) {
   }
   // Ajanın kendisi çökmeye karşı: istenen durum "açık" ise ve bot kapalıysa aç.
   if (state.desired && !bot.child && existsSync(join(BOT_DIR, 'package.json'))) safeStart();
+  if (destek.config?.token && !destek.child && !destek.restartTimer) startDestek();
 
   await flush();
   await api('/api/agent/finish', {id: job.id, ...result}).catch((e) => log('finish gönderilemedi:', e.message));
@@ -753,6 +963,7 @@ async function selfUpdate(version) {
     renameSync(next, join(HERE, 'agent.js'));
     log(`Ajan ${version} sürümüne güncellendi, yeniden başlatılıyor.`);
     await stopBot();
+    await stopDestek();
     process.exit(0);
   } catch (error) {
     updateFailedFor = version;
@@ -784,6 +995,14 @@ async function status() {
       since: bot.since,
       crashes: bot.crashTimes.filter((t) => now - t < 24 * 3600_000).length,
     },
+    destek: {
+      installed: destekInstalled(),
+      configured: Boolean(destek.config?.token),
+      state: destek.state,
+      since: destek.since,
+      crashes: destek.crashTimes.filter((t) => now - t < 24 * 3600_000).length,
+      sha: destek.sha,
+    },
     ...(sendLog ? {botLog: botLog.slice(-MAX_LOG_LINES)} : {}),
     ...(pendingMetrics.length ? {metrics: pendingMetrics.slice(0, 120)} : {}),
     live: live.filter((p) => p.t >= now - LIVE_MS),
@@ -804,6 +1023,9 @@ async function main() {
   log(`bbq-deploy ajanı ${VERSION} başladı. Panel: ${SITE}, bot klasörü: ${BOT_DIR}`);
   log(`VDS: ${availableParallelism()} çekirdek, ${Math.round(TOTAL_MEM / 1073741824)} GB bellek; görsel iş parçacığı: ${childEnv.UV_THREADPOOL_SIZE}`);
   killOrphan();
+  killOrphan('destek.pid');
+  writeDestekViewer();
+  destek.sha = await destekSha();
   cachedSha = await headSha();
   if (state.desired && existsSync(join(BOT_DIR, 'package.json')) && existsSync(join(BOT_DIR, 'node_modules'))) {
     safeStart();
@@ -821,9 +1043,11 @@ async function main() {
   for (;;) {
     try {
       const payload = await status();
-      const {job, agentVersion, admin, backups, backupNow} = await api('/api/agent/poll', payload);
+      const response = await api('/api/agent/poll', payload);
+      const {job, agentVersion, admin, backups, backupNow} = response;
       sent(payload);
       errors = 0;
+      if ('destek' in response) await syncDestek(response.destek);
       backupsEnabled = Boolean(backups);
       if (backupsEnabled && backupNow && !deploying) {
         await backup('elle');
@@ -863,6 +1087,7 @@ process.on('unhandledRejection', (e) => log('Yakalanmamış hata:', e?.stack || 
 process.on('uncaughtException', (e) => {
   log('Yakalanmamış hata, ajan yeniden başlatılacak:', e?.stack || e);
   if (bot.child) killTree(bot.child.pid);
+  if (destek.child) killTree(destek.child.pid);
   process.exit(1);
 });
 

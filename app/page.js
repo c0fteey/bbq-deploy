@@ -13,6 +13,7 @@ import {
   UsersIcon,
   ArchiveIcon,
   GaugeIcon,
+  ShieldIcon,
   XIcon,
 } from 'lucide-react';
 import {cancelDeploy, controlBot, deployCommit, logout, newAgentToken, runLoadTest, selectRepo} from './actions';
@@ -394,6 +395,9 @@ export default async function Home({searchParams}) {
           </Link>
           <Link href="/yedekler" className={buttonVariants({variant: 'outline', size: 'sm'})}>
             <ArchiveIcon /> Yedekler
+          </Link>
+          <Link href="/destek" className={buttonVariants({variant: 'outline', size: 'sm'})}>
+            <ShieldIcon /> Destek
           </Link>
           <span className="hidden items-center gap-1.5 text-sm text-muted-foreground sm:inline-flex">
             <GithubIcon className="size-4" /> {user}

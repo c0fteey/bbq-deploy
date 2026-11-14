@@ -1,5 +1,6 @@
 import {addDeploy, getSettings, setSettings} from '@/lib/db';
 import {verifyWebhook} from '@/lib/github';
+import {destekRepo} from '@/lib/destek';
 
 export async function POST(request) {
   const body = await request.text();
@@ -19,6 +20,18 @@ export async function POST(request) {
   if (event !== 'push') return Response.json({ok: true, ignored: event});
 
   const repo = payload.repository?.full_name;
+  // Destek botunun reposu: push'ta ajan destek botunu günceller.
+  const destek = destekRepo(settings);
+  if (repo === destek.repo) {
+    if (payload.ref !== `refs/heads/${destek.branch}` || payload.deleted || !payload.head_commit) return Response.json({ok: true, ignored: 'destek'});
+    const id = await addDeploy({
+      kind: 'destek',
+      sha: payload.after,
+      message: payload.head_commit.message,
+      author: payload.head_commit.author?.username || payload.head_commit.author?.name || payload.pusher?.name,
+    });
+    return Response.json({ok: true, deploy: id});
+  }
   if (!settings.repo || repo !== settings.repo) return Response.json({ok: true, ignored: 'repo'});
   if (payload.ref !== `refs/heads/${settings.branch}`) return Response.json({ok: true, ignored: 'branch'});
   if (payload.deleted || !payload.head_commit) return Response.json({ok: true, ignored: 'empty'});

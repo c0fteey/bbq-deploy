@@ -4,6 +4,7 @@ import {installationToken} from '@/lib/github';
 import {agentVersion} from '@/lib/agent-script';
 import {saveMetrics} from '@/lib/metrics';
 import {downloadUrl, isBlobConfigured} from '@/lib/backups';
+import {destekConfig, destekRepo, ensureDestekInstall} from '@/lib/destek';
 
 /** Bekleyen oyuncu yönetimi işleri (en fazla 5); ajan bunları bota iletir. Takılı kalanlar 1 dk sonra başarısız sayılır. */
 async function takeAdminJobs(c) {
@@ -45,7 +46,7 @@ export async function POST(request) {
     ...(Array.isArray(botLog) ? {bot_log: JSON.stringify(botLog.slice(-150))} : {}),
     ...(backupNow ? {backup_requested: null} : {}),
   });
-  const extra = {agentVersion: agentVersion(), backups: isBlobConfigured(), ...(backupNow ? {backupNow: true} : {})};
+  const extra = {agentVersion: agentVersion(), backups: isBlobConfigured(), destek: destekConfig(settings), ...(backupNow ? {backupNow: true} : {})};
 
   const c = await db();
 
@@ -59,6 +60,7 @@ export async function POST(request) {
     return Response.json({job: null, ...extra});
   }
 
+  await ensureDestekInstall(settings, info).catch(() => {});
   let {rows: pending} = await c.execute(`SELECT * FROM deploys WHERE status = 'pending' ORDER BY id`);
 
   // Kurulum: repo seçili ama VDS'de bot hiç kurulmamışsa ilk kurulum işi aç.
@@ -96,6 +98,21 @@ export async function POST(request) {
       await c.execute({
         sql: `UPDATE deploys SET status = 'failed', finished_at = ?, log = ? WHERE id = ?`,
         args: [Date.now(), `[panel] Repo erişimi alınamadı: ${error.message}`, job.id],
+      });
+      return Response.json({job: null, ...extra});
+    }
+  }
+
+  if (job.kind === 'destek') {
+    // Destek botunun reposu: aynı GitHub App kurulumunun bu repoya da erişimi olmalı.
+    try {
+      const {repo, branch} = destekRepo(settings);
+      const {token} = await installationToken(settings);
+      out.git = {url: `https://github.com/${repo}.git`, branch, token};
+    } catch (error) {
+      await c.execute({
+        sql: `UPDATE deploys SET status = 'failed', finished_at = ?, log = ? WHERE id = ?`,
+        args: [Date.now(), `[panel] Destek reposuna erişim alınamadı: ${error.message}`, job.id],
       });
       return Response.json({job: null, ...extra});
     }
