@@ -8,7 +8,7 @@ import {gunzipSync, gzipSync} from 'node:zlib';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const VERSION = '1.6.0';
+const VERSION = '1.6.1';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(process.env.BBQ_CONFIG || join(HERE, 'config.json'), 'utf8'));
 const SITE = config.siteUrl.replace(/\/$/, '');
@@ -738,7 +738,9 @@ async function selfUpdate(version) {
     });
     if (!res.ok) throw new Error(`panel ${res.status}`);
     const code = await res.text();
-    const next = join(HERE, 'agent.js.new');
+    // Uzantı .js olmalı: "agent.js.new" adında Node --check dosyayı tanımıyordu (ERR_UNKNOWN_FILE_EXTENSION) ve
+    // 1.3.0'dan 1.6.0'a kadar hiçbir kendi kendine güncelleme çalışmadı.
+    const next = join(HERE, 'agent.new.js');
     writeFileSync(next, code);
     const check = spawnSync(process.execPath, ['--check', next], {windowsHide: true, encoding: 'utf8'});
     if (check.status !== 0) throw new Error(`sözdizimi hatası: ${check.stderr}`);
