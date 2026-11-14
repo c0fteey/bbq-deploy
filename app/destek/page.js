@@ -8,7 +8,7 @@ import {BotState} from '@/components/status';
 import {buttonVariants} from '@/components/ui/button';
 import {Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card';
 import {getSettings} from '@/lib/db';
-import {destekRepo} from '@/lib/destek';
+import {destekRepo, whitelistInfo} from '@/lib/destek';
 import {duration, isRecent, shortSha} from '@/lib/format';
 import {requireUser} from '@/lib/session';
 
@@ -30,6 +30,7 @@ export default async function DestekPage() {
   const d = agent.destek;
   const {repo, branch} = destekRepo(settings);
   const hasToken = Boolean(settings.destek_token);
+  const info = await whitelistInfo(settings);
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 space-y-4 p-4 md:p-8">
@@ -108,6 +109,7 @@ export default async function DestekPage() {
           <DestekForm action={saveDestek} hasToken={hasToken} logChannel={settings.destek_log_channel ?? ''} allowed={settings.destek_allowed ?? 'micup.gg'}
             linkWhitelist={(settings.destek_wl_link ?? '').split(',').filter(Boolean).join('\n')}
             kufurWhitelist={(settings.destek_wl_kufur ?? '').split(',').filter(Boolean).join('\n')}
+            info={info}
           />
         </CardContent>
       </Card>
