@@ -1,14 +1,15 @@
 import Link from 'next/link';
 import {ArrowLeftIcon, RotateCwIcon, ShieldIcon, TrashIcon, UploadCloudIcon} from 'lucide-react';
-import {removeDestekToken, restartDestekBot, saveDestek, updateDestek} from './actions';
+import {addWhitelist, removeDestekToken, removeWhitelist, restartDestekBot, saveDestek, updateDestek} from './actions';
 import {ActionButton} from '@/components/action-button';
 import {AutoRefresh} from '@/components/auto-refresh';
 import {DestekForm} from '@/components/destek-form';
+import {DestekWhitelist} from '@/components/destek-whitelist';
 import {BotState} from '@/components/status';
 import {buttonVariants} from '@/components/ui/button';
 import {Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card';
 import {getSettings} from '@/lib/db';
-import {destekRepo, whitelistInfo} from '@/lib/destek';
+import {destekRepo, getWhitelist, whitelistInfo} from '@/lib/destek';
 import {duration, isRecent, shortSha} from '@/lib/format';
 import {requireUser} from '@/lib/session';
 
@@ -30,7 +31,8 @@ export default async function DestekPage() {
   const d = agent.destek;
   const {repo, branch} = destekRepo(settings);
   const hasToken = Boolean(settings.destek_token);
-  const info = await whitelistInfo(settings);
+  const whitelist = await getWhitelist(settings);
+  const info = await whitelistInfo(settings, [...new Set([...whitelist.link, ...whitelist.kufur].map((x) => x.id))]);
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 space-y-4 p-4 md:p-8">
@@ -106,11 +108,20 @@ export default async function DestekPage() {
           ) : null}
         </CardHeader>
         <CardContent>
-          <DestekForm action={saveDestek} hasToken={hasToken} logChannel={settings.destek_log_channel ?? ''} allowed={settings.destek_allowed ?? 'micup.gg'}
-            linkWhitelist={(settings.destek_wl_link ?? '').split(',').filter(Boolean).join('\n')}
-            kufurWhitelist={(settings.destek_wl_kufur ?? '').split(',').filter(Boolean).join('\n')}
-            info={info}
-          />
+          <DestekForm action={saveDestek} hasToken={hasToken} logChannel={settings.destek_log_channel ?? ''} allowed={settings.destek_allowed ?? 'micup.gg'} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Beyaz liste</CardTitle>
+          <CardDescription>
+            Kullanıcı, rol ya da kanal ID&apos;si: o kişi, o role sahip herkes ya da o kanalda yazılanlar o denetimden muaf. Ekleyip çıkarınca bot
+            yeniden başlamaz, birkaç saniye içinde uygular. Yetkililer (Mesajları Yönet) zaten muaf.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DestekWhitelist lists={whitelist} info={info} add={addWhitelist} remove={removeWhitelist} />
         </CardContent>
       </Card>
     </div>

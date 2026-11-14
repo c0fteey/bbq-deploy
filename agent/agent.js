@@ -8,7 +8,7 @@ import {gunzipSync, gzipSync} from 'node:zlib';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const VERSION = '1.7.1';
+const VERSION = '1.7.2';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(process.env.BBQ_CONFIG || join(HERE, 'config.json'), 'utf8'));
 const SITE = config.siteUrl.replace(/\/$/, '');
@@ -319,7 +319,7 @@ function waitHealthy() {
 
 const DESTEK_DIR = config.destekDir || join(dirname(BOT_DIR), 'destek');
 const DESTEK_LOG = join(LOG_DIR, 'destek.log');
-const destek = {child: null, state: 'stopped', since: null, crashTimes: [], restartTimer: null, exitWaiters: [], config: null, configKey: 'null', sha: null};
+const destek = {child: null, state: 'stopped', since: null, crashTimes: [], restartTimer: null, exitWaiters: [], config: null, configKey: 'null', sha: null, whitelist: null};
 
 function destekLine(line) {
   writeLog('destek.log', `[${new Date().toLocaleString('tr-TR', {hour12: false})}] ${line}`);
@@ -371,9 +371,9 @@ function startDestek() {
       MICUP_TOKEN: destek.config.token,
       LOG_CHANNEL_ID: destek.config.logChannel || '',
       ALLOWED_DOMAINS: destek.config.allowed || 'micup.gg',
-      // 1.7.1: beyaz listeler (kullanıcı, rol ya da kanal ID'leri, virgülle).
-      WHITELIST_LINK: destek.config.linkWhitelist || '',
-      WHITELIST_KUFUR: destek.config.kufurWhitelist || '',
+      // Beyaz listeler (kullanıcı, rol ya da kanal ID'leri, virgülle). Açılıştan sonraki değişiklikler IPC ile gider.
+      WHITELIST_LINK: (destek.whitelist?.link ?? []).join(','),
+      WHITELIST_KUFUR: (destek.whitelist?.kufur ?? []).join(','),
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     windowsHide: true,
@@ -451,6 +451,23 @@ function destekHealthy() {
     };
     destek.exitWaiters.push(onExit);
   });
+}
+
+/**
+ * 1.7.2: Beyaz liste panelin veritabanında; değişince çalışan bota IPC ile iletilir, bot yeniden başlamaz.
+ * Bot açılırken listeyi ortam değişkeninden alır.
+ */
+function syncDestekWhitelist(wl) {
+  if (!wl || wl.version === destek.whitelist?.version) return;
+  const first = !destek.whitelist;
+  destek.whitelist = {version: wl.version, link: Array.isArray(wl.link) ? wl.link : [], kufur: Array.isArray(wl.kufur) ? wl.kufur : []};
+  const child = destek.child;
+  if (child?.connected) {
+    try {
+      child.send({type: 'whitelist', link: destek.whitelist.link, kufur: destek.whitelist.kufur});
+    } catch {}
+  }
+  if (!first) destekLine(`Beyaz liste güncellendi (link ${destek.whitelist.link.length}, küfür ${destek.whitelist.kufur.length} ID); bot yeniden başlamadı.`);
 }
 
 /** Panelin her yanıtındaki destek ayarları: değiştiyse bot yeniden başlar, token silindiyse durur. */
@@ -1050,6 +1067,8 @@ async function main() {
       const {job, agentVersion, admin, backups, backupNow} = response;
       sent(payload);
       errors = 0;
+      // Önce beyaz liste: bot ilk kez başlarken listeyi ortam değişkeninden alsın.
+      if ('destekWhitelist' in response) syncDestekWhitelist(response.destekWhitelist);
       if ('destek' in response) await syncDestek(response.destek);
       backupsEnabled = Boolean(backups);
       if (backupsEnabled && backupNow && !deploying) {

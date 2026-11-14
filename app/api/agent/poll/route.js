@@ -4,7 +4,7 @@ import {installationToken} from '@/lib/github';
 import {agentVersion} from '@/lib/agent-script';
 import {saveMetrics} from '@/lib/metrics';
 import {downloadUrl, isBlobConfigured} from '@/lib/backups';
-import {destekConfig, destekRepo, ensureDestekInstall} from '@/lib/destek';
+import {destekConfig, destekRepo, ensureDestekInstall, whitelistPayload} from '@/lib/destek';
 
 /** Bekleyen oyuncu yönetimi işleri (en fazla 5); ajan bunları bota iletir. Takılı kalanlar 1 dk sonra başarısız sayılır. */
 async function takeAdminJobs(c) {
@@ -46,7 +46,9 @@ export async function POST(request) {
     ...(Array.isArray(botLog) ? {bot_log: JSON.stringify(botLog.slice(-150))} : {}),
     ...(backupNow ? {backup_requested: null} : {}),
   });
-  const extra = {agentVersion: agentVersion(), backups: isBlobConfigured(), destek: destekConfig(settings), ...(backupNow ? {backupNow: true} : {})};
+  // Beyaz liste ayrı gider: değişince ajan çalışan bota iletir, bot yeniden başlamaz (ajan 1.7.2+).
+  const destekWhitelist = settings.destek_token ? await whitelistPayload(settings).catch(() => null) : null;
+  const extra = {agentVersion: agentVersion(), backups: isBlobConfigured(), destek: destekConfig(settings), destekWhitelist, ...(backupNow ? {backupNow: true} : {})};
 
   const c = await db();
 

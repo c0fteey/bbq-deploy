@@ -1,26 +1,12 @@
 'use server';
 
 import {revalidatePath} from 'next/cache';
-import {addDeploy, setSettings} from '@/lib/db';
+import {addDeploy, db, setSettings} from '@/lib/db';
+import {WL_LISTS} from '@/lib/destek';
 import {requireUser} from '@/lib/session';
 
 const DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 const ID = /^\d{5,25}$/;
-
-/** Beyaz liste kutusu: virgül, boşluk ya da satırla ayrılmış ID'ler; satırdaki "#" sonrası not olarak atılır. */
-function idList(value, label) {
-  const ids = String(value ?? '')
-    .split(/\r?\n/)
-    .map((line) => line.replace(/#.*$/, ''))
-    .join(',')
-    .split(/[\s,]+/)
-    .map((id) => id.replace(/[<@&!>]/g, '').trim())
-    .filter(Boolean);
-  const bad = ids.find((id) => !ID.test(id));
-  if (bad) throw new Error(`${label}: "${bad}" bir ID değil (yalnızca rakam)`);
-  if (ids.length > 200) throw new Error(`${label}: en fazla 200 ID`);
-  return [...new Set(ids)].join(',');
-}
 
 /** Token boş bırakılırsa eskisi kalır; "Token'ı kaldır" ayrı. Kayıttan sonra ajan birkaç saniye içinde botu yeniden başlatır. */
 export async function saveDestek(formData) {
@@ -32,18 +18,52 @@ export async function saveDestek(formData) {
     .map((d) => d.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, ''))
     .filter(Boolean);
   if (token && (token.length < 20 || /\s/.test(token))) throw new Error('Token geçersiz görünüyor');
-  if (logChannel && !/^\d{5,25}$/.test(logChannel)) throw new Error('Log kanalı ID\'si yalnızca rakam olmalı');
+  if (logChannel && !ID.test(logChannel)) throw new Error('Log kanalı ID\'si yalnızca rakam olmalı');
   const bad = allowed.find((d) => !DOMAIN.test(d));
   if (bad) throw new Error(`Geçersiz alan adı: ${bad}`);
-  const linkWhitelist = idList(formData.get('linkWhitelist'), 'Link beyaz listesi');
-  const kufurWhitelist = idList(formData.get('kufurWhitelist'), 'Küfür beyaz listesi');
   await setSettings({
     ...(token ? {destek_token: token} : {}),
     destek_log_channel: logChannel || null,
     destek_allowed: allowed.length ? allowed.join(',') : 'micup.gg',
-    destek_wl_link: linkWhitelist || null,
-    destek_wl_kufur: kufurWhitelist || null,
   });
+  revalidatePath('/destek');
+}
+
+/**
+ * Beyaz listeye ekler (veritabanı). Birden çok ID virgül/boşlukla yazılabilir; <@123> gibi etiketler de olur.
+ * Bot yeniden başlamaz: ajan birkaç saniye içinde yeni listeyi çalışan bota iletir. Eklenen sayısını döndürür.
+ */
+export async function addWhitelist(list, value) {
+  const user = await requireUser();
+  if (!WL_LISTS.includes(list)) throw new Error('Geçersiz liste');
+  const ids = [
+    ...new Set(
+      String(value ?? '')
+        .split(/[\s,]+/)
+        .map((id) => id.replace(/[<@&#!>]/g, '').trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (!ids.length) throw new Error('ID yaz');
+  const bad = ids.find((id) => !ID.test(id));
+  if (bad) throw new Error(`"${bad}" bir ID değil (yalnızca rakam)`);
+  const c = await db();
+  const {rows} = await c.execute({sql: 'SELECT COUNT(*) AS n FROM destek_whitelist WHERE list = ?', args: [list]});
+  if (Number(rows[0].n) + ids.length > 500) throw new Error('Bir listede en fazla 500 ID olabilir');
+  const now = Date.now();
+  const result = await c.batch(
+    ids.map((id) => ({sql: 'INSERT OR IGNORE INTO destek_whitelist (list, target_id, author, created_at) VALUES (?, ?, ?, ?)', args: [list, id, user, now]})),
+    'write',
+  );
+  revalidatePath('/destek');
+  return result.reduce((sum, r) => sum + Number(r.rowsAffected || 0), 0);
+}
+
+export async function removeWhitelist(list, id) {
+  await requireUser();
+  if (!WL_LISTS.includes(list) || !ID.test(String(id))) throw new Error('Geçersiz');
+  const c = await db();
+  await c.execute({sql: 'DELETE FROM destek_whitelist WHERE list = ? AND target_id = ?', args: [list, String(id)]});
   revalidatePath('/destek');
 }
 
