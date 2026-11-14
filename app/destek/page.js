@@ -105,7 +105,10 @@ export default async function DestekPage() {
           ) : null}
         </CardHeader>
         <CardContent>
-          <DestekForm action={saveDestek} hasToken={hasToken} logChannel={settings.destek_log_channel ?? ''} allowed={settings.destek_allowed ?? 'micup.gg'} />
+          <DestekForm action={saveDestek} hasToken={hasToken} logChannel={settings.destek_log_channel ?? ''} allowed={settings.destek_allowed ?? 'micup.gg'}
+            linkWhitelist={(settings.destek_wl_link ?? '').split(',').filter(Boolean).join('\n')}
+            kufurWhitelist={(settings.destek_wl_kufur ?? '').split(',').filter(Boolean).join('\n')}
+          />
         </CardContent>
       </Card>
     </div>

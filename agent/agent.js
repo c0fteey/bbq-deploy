@@ -8,7 +8,7 @@ import {gunzipSync, gzipSync} from 'node:zlib';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const VERSION = '1.7.0';
+const VERSION = '1.7.1';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(process.env.BBQ_CONFIG || join(HERE, 'config.json'), 'utf8'));
 const SITE = config.siteUrl.replace(/\/$/, '');
@@ -371,6 +371,9 @@ function startDestek() {
       MICUP_TOKEN: destek.config.token,
       LOG_CHANNEL_ID: destek.config.logChannel || '',
       ALLOWED_DOMAINS: destek.config.allowed || 'micup.gg',
+      // 1.7.1: beyaz listeler (kullanıcı, rol ya da kanal ID'leri, virgülle).
+      WHITELIST_LINK: destek.config.linkWhitelist || '',
+      WHITELIST_KUFUR: destek.config.kufurWhitelist || '',
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     windowsHide: true,
