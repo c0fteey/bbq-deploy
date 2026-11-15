@@ -2,7 +2,7 @@
 
 import {useRouter} from 'next/navigation';
 import {useEffect, useRef, useState, useTransition} from 'react';
-import {Loader2Icon, PlusIcon, SaveIcon, SearchIcon, Trash2Icon} from 'lucide-react';
+import {EraserIcon, Loader2Icon, PlusIcon, SaveIcon, SearchIcon, Trash2Icon} from 'lucide-react';
 import {toast} from 'sonner';
 import {adminJob, queueAdmin} from '@/app/oyuncular/actions';
 import {Button} from '@/components/ui/button';
@@ -167,7 +167,7 @@ export function Players({initialId = ''}) {
           <CountList
             title="Hayvanlar"
             empty="Hiç hayvanı yok."
-            description="Adet değişince toplam yakalanan (zoo puanı) düşmez."
+            description="Adet değişince toplam yakalanan (zoo puanı) düşmez. Kırmızı silgi hayvanı hiç yakalanmamış gibi yapar."
             rows={sortByCatalog(p.zoo, catalog.animals).map((row) => ({
               key: row.animal,
               label: (
@@ -189,6 +189,13 @@ export function Players({initialId = ''}) {
             }))}
             disabled={pending}
             onSet={(animal, count) => act('setAnimal', {animal, count}, {success: 'Hayvan güncellendi'})}
+            resetTitle="Hiç yakalanmamış yap (zoo'da ❓ olur)"
+            onReset={(animal) => {
+              const name = catalog.animals.find((item) => item.key === animal)?.name ?? animal;
+              if (window.confirm(`${name} hiç yakalanmamış gibi yapılsın mı?\n\nAdedi ve toplamı silinir, zoo'da ❓ görünür; takımdan ve takılı silahından çıkar. Geri alınamaz.`)) {
+                act('resetAnimal', {animal}, {success: 'Hayvan sıfırlandı'});
+              }
+            }}
           />
 
           <Weapons player={p} catalog={catalog} disabled={pending} act={act} />
@@ -252,7 +259,7 @@ function AddMoney({disabled, onAdd}) {
   );
 }
 
-function CountRow({row, disabled, onSet}) {
+function CountRow({row, disabled, onSet, onReset, resetTitle}) {
   const [text, setText] = useState(String(row.count));
   return (
     <TableRow>
@@ -273,13 +280,18 @@ function CountRow({row, disabled, onSet}) {
           <Button type="button" size="icon" variant="ghost" disabled={disabled} title="Sil (0 yap)" onClick={() => onSet(row.key, 0)}>
             <Trash2Icon />
           </Button>
+          {onReset ? (
+            <Button type="button" size="icon" variant="ghost" className="text-red-400 hover:text-red-300" disabled={disabled} title={resetTitle} onClick={() => onReset(row.key)}>
+              <EraserIcon />
+            </Button>
+          ) : null}
         </form>
       </TableCell>
     </TableRow>
   );
 }
 
-function CountList({title, description, empty, rows, options, disabled, onSet}) {
+function CountList({title, description, empty, rows, options, disabled, onSet, onReset, resetTitle}) {
   const [key, setKey] = useState(options[0]?.key ?? '');
   const [count, setCount] = useState('1');
   return (
@@ -293,7 +305,7 @@ function CountList({title, description, empty, rows, options, disabled, onSet}) 
           <Table>
             <TableBody>
               {rows.map((row) => (
-                <CountRow key={`${row.key}:${row.count}`} row={row} disabled={disabled} onSet={onSet} />
+                <CountRow key={`${row.key}:${row.count}`} row={row} disabled={disabled} onSet={onSet} onReset={onReset} resetTitle={resetTitle} />
               ))}
             </TableBody>
           </Table>

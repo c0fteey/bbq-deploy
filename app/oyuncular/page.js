@@ -19,6 +19,7 @@ const LABELS = {
   setShards: 'Shard ayarlandı',
   setItem: 'Eşya ayarlandı',
   setAnimal: 'Hayvan ayarlandı',
+  resetAnimal: 'Hayvan sıfırlandı',
   addWeapon: 'Silah verildi',
   deleteWeapon: 'Silah silindi',
   deletePlayer: 'Oyuncu silindi',
@@ -32,6 +33,7 @@ function paramText(action, text) {
     if (action === 'addMoney') return String(p.amount);
     if (action === 'setItem') return `${p.item} = ${p.count}`;
     if (action === 'setAnimal') return `${p.animal} = ${p.count}`;
+    if (action === 'resetAnimal') return p.animal;
     if (action === 'addWeapon') return `${p.type}${p.rarity ? ` (${p.rarity})` : ''}`;
     if (action === 'deleteWeapon') return p.code;
   } catch {}

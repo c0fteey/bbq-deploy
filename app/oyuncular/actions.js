@@ -4,7 +4,7 @@ import {db} from '@/lib/db';
 import {requireUser} from '@/lib/session';
 
 // Bot tarafındaki işlemlerle aynı liste (Barbeque src/admin.js). Bilinmeyen işlem sıraya hiç girmez.
-const ACTIONS = ['lookup', 'setMoney', 'addMoney', 'setXp', 'setShards', 'setItem', 'setAnimal', 'addWeapon', 'deleteWeapon', 'deletePlayer'];
+const ACTIONS = ['lookup', 'setMoney', 'addMoney', 'setXp', 'setShards', 'setItem', 'setAnimal', 'resetAnimal', 'addWeapon', 'deleteWeapon', 'deletePlayer'];
 const USER_ID = /^\d{5,25}$/;
 
 /** Oyuncu işini sıraya koyar, iş numarasını döndürür. Ajan birkaç saniye içinde alıp bota iletir. */
