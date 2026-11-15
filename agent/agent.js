@@ -8,7 +8,7 @@ import {gunzipSync, gzipSync} from 'node:zlib';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const VERSION = '1.8.0';
+const VERSION = '1.8.1';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(process.env.BBQ_CONFIG || join(HERE, 'config.json'), 'utf8'));
 const SITE = config.siteUrl.replace(/\/$/, '');
@@ -504,17 +504,29 @@ function flushGuildEvents() {
   }
 }
 
-/** Panelin her yanıtındaki destek ayarları: değiştiyse bot yeniden başlar, token silindiyse durur. */
+/**
+ * Panelin her yanıtındaki destek ayarları. 1.8.1: yalnızca token değişince bot yeniden başlar (token silindiyse durur);
+ * kanallar ve izinli alan adları çalışan bota IPC ile iletilir, bot yeniden başlamaz.
+ */
 async function syncDestek(cfg) {
-  const key = JSON.stringify(cfg ?? null);
+  const key = cfg?.token ?? 'null';
+  const prev = destek.config;
+  destek.config = cfg ?? null;
   if (key !== destek.configKey) {
     const first = destek.configKey === 'null' && !destek.child;
     destek.configKey = key;
-    destek.config = cfg ?? null;
     if (destek.child) {
-      destekLine(cfg ? 'Ayarlar değişti, destek botu yeniden başlatılıyor.' : 'Token kaldırıldı, destek botu durduruluyor.');
+      destekLine(cfg ? 'Token değişti, destek botu yeniden başlatılıyor.' : 'Token kaldırıldı, destek botu durduruluyor.');
       await stopDestek();
     } else if (cfg && !first) destekLine('Ayarlar alındı.');
+  } else if (cfg && prev && JSON.stringify(cfg) !== JSON.stringify(prev)) {
+    const child = destek.child;
+    if (child?.connected) {
+      try {
+        child.send({type: 'settings', logChannel: cfg.logChannel || '', allowed: cfg.allowed || 'micup.gg', joinChannel: cfg.joinChannel || '', leaveChannel: cfg.leaveChannel || ''});
+      } catch {}
+    }
+    destekLine('Ayarlar güncellendi; bot yeniden başlamadı.');
   }
   if (destek.config?.token && !destek.child && !destek.restartTimer && !deploying) startDestek();
 }

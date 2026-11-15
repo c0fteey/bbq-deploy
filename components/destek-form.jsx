@@ -7,7 +7,7 @@ import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 
-/** Destek botu ayarları (değişince bot yeniden başlar). Token alanı boş bırakılırsa kayıtlı token değişmez. */
+/** Destek botu ayarları. Yalnızca token değişince bot yeniden başlar; kanallar ve alan adları anında uygulanır. Token alanı boş bırakılırsa kayıtlı token değişmez. */
 export function DestekForm({action, hasToken, logChannel, joinChannel, leaveChannel, allowed}) {
   const [pending, start] = useTransition();
   return (
@@ -21,7 +21,7 @@ export function DestekForm({action, hasToken, logChannel, joinChannel, leaveChan
           try {
             await action(data);
             formElement.elements.namedItem('token').value = '';
-            toast.success('Kaydedildi; ajan birkaç saniye içinde destek botunu yeni ayarlarla başlatır');
+            toast.success(data.get('token') ? 'Kaydedildi; yeni token ile destek botu birkaç saniye içinde yeniden başlar' : 'Kaydedildi; birkaç saniye içinde uygulanır, bot yeniden başlamaz');
           } catch (error) {
             toast.error(error?.message || 'Kaydedilemedi');
           }

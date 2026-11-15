@@ -8,7 +8,7 @@ import {requireUser} from '@/lib/session';
 const DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 const ID = /^\d{5,25}$/;
 
-/** Token boş bırakılırsa eskisi kalır; "Token'ı kaldır" ayrı. Kayıttan sonra ajan birkaç saniye içinde botu yeniden başlatır. */
+/** Token boş bırakılırsa eskisi kalır; "Token'ı kaldır" ayrı. Yalnızca token değişince bot yeniden başlar; diğerleri ajanla çalışan bota iletilir. */
 export async function saveDestek(formData) {
   await requireUser();
   const token = String(formData.get('token') ?? '').trim();
