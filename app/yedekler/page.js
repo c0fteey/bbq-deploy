@@ -131,7 +131,12 @@ export default async function BackupsPage() {
                           args={[b.pathname]}
                           variant="outline"
                           size="sm"
-                          confirm={`${dateTime(b.time)} yedeği geri yüklensin mi?\n\nBot kısa süre durur. Şu anki veri önce yedeklenir, sonra bu yedek yerine konur. Bu yedekten sonraki bütün oyuncu değişiklikleri geri alınır.`}
+                          confirm={{
+                            title: `${dateTime(b.time)} yedeği geri yüklensin mi?`,
+                            description: 'Bot kısa süre durur. Şu anki veri önce yedeklenir, sonra bu yedek yerine konur. Bu yedekten sonraki bütün oyuncu değişiklikleri silinir.',
+                            hold: true,
+                            confirmLabel: 'Geri yüklemek için basılı tut',
+                          }}
                           success="Geri yükleme sıraya alındı, ilerlemesi ana sayfadaki güncelleme listesinde"
                         >
                           <ArchiveRestoreIcon /> Geri yükle

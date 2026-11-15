@@ -154,7 +154,7 @@ export default async function Home({searchParams}) {
                 action={controlBot}
                 args={['stop']}
                 variant="outline"
-                confirm="Bot durdurulsun mu? Panelden tekrar başlatana kadar kapalı kalır."
+                confirm={{title: 'Bot durdurulsun mu?', description: 'Panelden tekrar başlatana kadar kapalı kalır.', confirmLabel: 'Durdur'}}
                 success="Durdurma sıraya alındı"
               >
                 <SquareIcon /> Durdur
@@ -166,7 +166,11 @@ export default async function Home({searchParams}) {
             <ActionButton
               action={runLoadTest}
               variant="outline"
-              confirm="VDS'te yük testi çalışsın mı? Sahte kullanıcılar ve geçici bir veritabanıyla çalışır, canlı veriye dokunmaz; birkaç dakika sürebilir ve bu sırada bot biraz yavaşlayabilir."
+              confirm={{
+                title: 'VDS’te yük testi çalışsın mı?',
+                description: 'Sahte kullanıcılar ve geçici bir veritabanıyla çalışır, canlı veriye dokunmaz; birkaç dakika sürebilir ve bu sırada bot biraz yavaşlayabilir.',
+                confirmLabel: 'Başlat',
+              }}
               success="Yük testi sıraya alındı, sonucu güncelleme kaydında görünecek"
             >
               <GaugeIcon /> Yük testi
@@ -318,7 +322,7 @@ export default async function Home({searchParams}) {
                             variant="ghost"
                             size="icon-sm"
                             title="Bu sürümü yükle"
-                            confirm={`${shortSha(d.sha)} sürümü yüklensin mi?`}
+                            confirm={{title: `${shortSha(d.sha)} sürümü yüklensin mi?`, confirmLabel: 'Yükle'}}
                             success="Sıraya alındı"
                           >
                             <UploadCloudIcon />
@@ -367,7 +371,7 @@ export default async function Home({searchParams}) {
             action={newAgentToken}
             variant="destructive"
             size="sm"
-            confirm="Yeni token oluşturulsun mu? Eski token hemen geçersiz olur."
+            confirm={{title: 'Yeni token oluşturulsun mu?', description: 'Eski token hemen geçersiz olur.', confirmLabel: 'Oluştur'}}
             success="Yeni token oluşturuldu"
           >
             Token’ı yenile

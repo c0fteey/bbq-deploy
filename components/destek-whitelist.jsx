@@ -3,6 +3,7 @@
 import {HashIcon, HelpCircleIcon, Loader2Icon, PlusIcon, ShieldIcon, XIcon} from 'lucide-react';
 import {useState, useTransition} from 'react';
 import {toast} from 'sonner';
+import {ConfirmDialog} from '@/components/confirm-dialog';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
@@ -13,6 +14,7 @@ const date = new Intl.DateTimeFormat('tr-TR', {dateStyle: 'short', timeStyle: 's
 /** Beyaz listedeki bir ID: resim/simge, ad, ID ve çıkarma düğmesi. */
 function Badge({entry, item, onRemove, removing}) {
   const {id} = entry;
+  const [confirming, setConfirming] = useState(false);
   const title = [
     item ? TYPE[item.type] : 'Adı birazdan görünür',
     item?.username ? `@${item.username}` : null,
@@ -50,13 +52,22 @@ function Badge({entry, item, onRemove, removing}) {
       <span className="font-mono text-[10px] text-muted-foreground">{id}</span>
       <button
         type="button"
-        onClick={onRemove}
+        onClick={() => setConfirming(true)}
         disabled={removing}
         className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
         aria-label={`${id} listeden çıkar`}
       >
         {removing ? <Loader2Icon className="size-3 animate-spin" /> : <XIcon className="size-3" />}
       </button>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={`${item?.name ?? id} beyaz listeden çıkarılsın mı?`}
+        description="Bot birkaç saniye içinde uygular."
+        hold
+        confirmLabel="Çıkarmak için basılı tut"
+        onConfirm={onRemove}
+      />
     </span>
   );
 }

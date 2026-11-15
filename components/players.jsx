@@ -5,6 +5,7 @@ import {useEffect, useRef, useState, useTransition} from 'react';
 import {EraserIcon, Loader2Icon, PlusIcon, SaveIcon, SearchIcon, Trash2Icon} from 'lucide-react';
 import {toast} from 'sonner';
 import {adminJob, queueAdmin} from '@/app/oyuncular/actions';
+import {ConfirmButton, ConfirmDialog} from '@/components/confirm-dialog';
 import {Button} from '@/components/ui/button';
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from '@/components/ui/card';
 import {Input} from '@/components/ui/input';
@@ -160,6 +161,10 @@ export function Players({initialId = ''}) {
             empty="Envanter boş."
             rows={p.inventory.map((row) => ({key: row.item, label: `${row.id ?? ''} ${row.name}`.trim(), count: row.count}))}
             options={catalog.items.map((item) => ({key: item.key, label: `${item.id} · ${item.name}`}))}
+            removeConfirm={(key) => ({
+              title: `${catalog.items.find((item) => item.key === key)?.name ?? key} envanterden silinsin mi?`,
+              hold: true,
+            })}
             disabled={pending}
             onSet={(item, count) => act('setItem', {item, count}, {success: 'Envanter güncellendi'})}
           />
@@ -190,12 +195,17 @@ export function Players({initialId = ''}) {
             disabled={pending}
             onSet={(animal, count) => act('setAnimal', {animal, count}, {success: 'Hayvan güncellendi'})}
             resetTitle="Hiç yakalanmamış yap (zoo'da ❓ olur)"
-            onReset={(animal) => {
-              const name = catalog.animals.find((item) => item.key === animal)?.name ?? animal;
-              if (window.confirm(`${name} hiç yakalanmamış gibi yapılsın mı?\n\nAdedi ve toplamı silinir, zoo'da ❓ görünür; takımdan ve takılı silahından çıkar. Geri alınamaz.`)) {
-                act('resetAnimal', {animal}, {success: 'Hayvan sıfırlandı'});
-              }
-            }}
+            resetConfirm={(animal) => ({
+              title: `${catalog.animals.find((item) => item.key === animal)?.name ?? animal} hiç yakalanmamış gibi yapılsın mı?`,
+              description: "Adedi ve toplamı silinir, zoo'da ❓ görünür; takımdan ve takılı silahından çıkar. Geri alınamaz.",
+              hold: true,
+            })}
+            onReset={(animal) => act('resetAnimal', {animal}, {success: 'Hayvan sıfırlandı'})}
+            removeConfirm={(key) => ({
+              title: `${catalog.animals.find((item) => item.key === key)?.name ?? key} 0 yapılsın mı?`,
+              description: 'Adedi 0 olur; toplam yakalanan (zoo puanı) kalır.',
+              hold: true,
+            })}
           />
 
           <Weapons player={p} catalog={catalog} disabled={pending} act={act} />
@@ -259,7 +269,7 @@ function AddMoney({disabled, onAdd}) {
   );
 }
 
-function CountRow({row, disabled, onSet, onReset, resetTitle}) {
+function CountRow({row, disabled, onSet, onReset, resetTitle, resetConfirm, removeConfirm}) {
   const [text, setText] = useState(String(row.count));
   return (
     <TableRow>
@@ -277,13 +287,22 @@ function CountRow({row, disabled, onSet, onReset, resetTitle}) {
           <Button type="submit" size="icon" variant="outline" disabled={disabled || text === String(row.count)} title="Kaydet">
             <SaveIcon />
           </Button>
-          <Button type="button" size="icon" variant="ghost" disabled={disabled} title="Sil (0 yap)" onClick={() => onSet(row.key, 0)}>
+          <ConfirmButton type="button" size="icon" variant="ghost" disabled={disabled} title="Sil (0 yap)" confirm={removeConfirm?.(row.key)} onConfirm={() => onSet(row.key, 0)}>
             <Trash2Icon />
-          </Button>
+          </ConfirmButton>
           {onReset ? (
-            <Button type="button" size="icon" variant="ghost" className="text-red-400 hover:text-red-300" disabled={disabled} title={resetTitle} onClick={() => onReset(row.key)}>
+            <ConfirmButton
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="text-red-400 hover:text-red-300"
+              disabled={disabled}
+              title={resetTitle}
+              confirm={resetConfirm?.(row.key)}
+              onConfirm={() => onReset(row.key)}
+            >
               <EraserIcon />
-            </Button>
+            </ConfirmButton>
           ) : null}
         </form>
       </TableCell>
@@ -291,7 +310,7 @@ function CountRow({row, disabled, onSet, onReset, resetTitle}) {
   );
 }
 
-function CountList({title, description, empty, rows, options, disabled, onSet, onReset, resetTitle}) {
+function CountList({title, description, empty, rows, options, disabled, onSet, onReset, resetTitle, resetConfirm, removeConfirm}) {
   const [key, setKey] = useState(options[0]?.key ?? '');
   const [count, setCount] = useState('1');
   return (
@@ -305,7 +324,7 @@ function CountList({title, description, empty, rows, options, disabled, onSet, o
           <Table>
             <TableBody>
               {rows.map((row) => (
-                <CountRow key={`${row.key}:${row.count}`} row={row} disabled={disabled} onSet={onSet} onReset={onReset} resetTitle={resetTitle} />
+                <CountRow key={`${row.key}:${row.count}`} row={row} disabled={disabled} onSet={onSet} onReset={onReset} resetTitle={resetTitle} resetConfirm={resetConfirm} removeConfirm={removeConfirm} />
               ))}
             </TableBody>
           </Table>
@@ -387,17 +406,16 @@ function Weapons({player, catalog, disabled, act}) {
                     </TableCell>
                     <TableCell className="hidden text-xs text-muted-foreground sm:table-cell">{weapon.animal ?? ''}</TableCell>
                     <TableCell className="text-right">
-                      <Button
+                      <ConfirmButton
                         size="icon"
                         variant="ghost"
                         disabled={disabled}
                         title="Sil"
-                        onClick={() => {
-                          if (window.confirm(`${weapon.code} (${weapon.name}) silinsin mi?`)) act('deleteWeapon', {code: weapon.code}, {success: 'Silah silindi'});
-                        }}
+                        confirm={{title: `${weapon.code} (${weapon.name}) silinsin mi?`, description: 'Silah oyuncudan tamamen silinir.', hold: true}}
+                        onConfirm={() => act('deleteWeapon', {code: weapon.code}, {success: 'Silah silindi'})}
                       >
                         <Trash2Icon />
-                      </Button>
+                      </ConfirmButton>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -440,6 +458,7 @@ function Weapons({player, catalog, disabled, act}) {
 
 function DangerZone({player, disabled, onDelete}) {
   const [text, setText] = useState('');
+  const [open, setOpen] = useState(false);
   return (
     <Card className="border-red-500/40">
       <CardHeader>
@@ -454,9 +473,7 @@ function DangerZone({player, disabled, onDelete}) {
           className="flex gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            if (text.trim() !== player.userId) return;
-            onDelete();
-            setText('');
+            if (text.trim() === player.userId) setOpen(true);
           }}
         >
           <Input value={text} onChange={(e) => setText(e.target.value)} placeholder={player.userId} className="font-mono" />
@@ -464,6 +481,17 @@ function DangerZone({player, disabled, onDelete}) {
             <Trash2Icon /> Sil
           </Button>
         </form>
+        <ConfirmDialog
+          open={open}
+          onOpenChange={setOpen}
+          title={`${player.name ?? player.userId} oyuncusunun bütün verisi silinsin mi?`}
+          description="Para, XP, envanter, hayvanlar, takımlar, silahlar, gemler, evlilik ve wallpaper’lar silinir. Geri alınamaz."
+          hold
+          onConfirm={() => {
+            onDelete();
+            setText('');
+          }}
+        />
       </CardContent>
     </Card>
   );

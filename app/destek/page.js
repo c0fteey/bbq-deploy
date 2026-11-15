@@ -99,7 +99,7 @@ export default async function DestekPage() {
                 action={removeDestekToken}
                 variant="ghost"
                 size="sm"
-                confirm="Token kaldırılsın mı? Destek botu durur."
+                confirm={{title: 'Token kaldırılsın mı?', description: 'Destek botu durur.', hold: true, confirmLabel: 'Kaldırmak için basılı tut'}}
                 success="Token kaldırıldı, destek botu duracak"
               >
                 <TrashIcon /> Token’ı kaldır

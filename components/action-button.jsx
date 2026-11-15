@@ -3,17 +3,20 @@
 import {Loader2Icon} from 'lucide-react';
 import {useTransition} from 'react';
 import {toast} from 'sonner';
-import {Button} from '@/components/ui/button';
+import {ConfirmButton} from '@/components/confirm-dialog';
 
-/** Sunucu işlemini çağıran, bekleme ve bildirim gösteren buton. */
+/**
+ * Sunucu işlemini çağıran, bekleme ve bildirim gösteren buton.
+ * confirm: {title, description, confirmLabel, hold} verilirse önce panelin modalı açılır (hold: basılı tutarak onay).
+ */
 export function ActionButton({action, args = [], success, confirm, children, ...props}) {
   const [pending, start] = useTransition();
   return (
-    <Button
+    <ConfirmButton
       {...props}
+      confirm={confirm}
       disabled={pending || props.disabled}
-      onClick={() => {
-        if (confirm && !window.confirm(confirm)) return;
+      onConfirm={() =>
         start(async () => {
           try {
             await action(...args);
@@ -21,11 +24,11 @@ export function ActionButton({action, args = [], success, confirm, children, ...
           } catch (error) {
             toast.error(error?.message || 'İşlem başarısız');
           }
-        });
-      }}
+        })
+      }
     >
       {pending ? <Loader2Icon className="animate-spin" /> : null}
       {children}
-    </Button>
+    </ConfirmButton>
   );
 }
