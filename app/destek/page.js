@@ -108,7 +108,10 @@ export default async function DestekPage() {
           ) : null}
         </CardHeader>
         <CardContent>
-          <DestekForm action={saveDestek} hasToken={hasToken} logChannel={settings.destek_log_channel ?? ''} allowed={settings.destek_allowed ?? 'micup.gg'} />
+          <DestekForm action={saveDestek} hasToken={hasToken} logChannel={settings.destek_log_channel ?? ''}
+            joinChannel={settings.destek_join_channel ?? ''}
+            leaveChannel={settings.destek_leave_channel ?? ''}
+            allowed={settings.destek_allowed ?? 'micup.gg'} />
         </CardContent>
       </Card>
 

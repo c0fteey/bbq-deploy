@@ -8,7 +8,7 @@ import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 
 /** Destek botu ayarları (değişince bot yeniden başlar). Token alanı boş bırakılırsa kayıtlı token değişmez. */
-export function DestekForm({action, hasToken, logChannel, allowed}) {
+export function DestekForm({action, hasToken, logChannel, joinChannel, leaveChannel, allowed}) {
   const [pending, start] = useTransition();
   return (
     <form
@@ -41,6 +41,20 @@ export function DestekForm({action, hasToken, logChannel, allowed}) {
       <div className="space-y-1.5">
         <Label htmlFor="logChannel">Log kanalı ID&apos;si (isteğe bağlı)</Label>
         <Input id="logChannel" name="logChannel" inputMode="numeric" defaultValue={logChannel} placeholder="Silinen mesajlar bu kanala yazılır" />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="joinChannel">Sunucuya eklendi kanalı</Label>
+          <Input id="joinChannel" name="joinChannel" inputMode="numeric" defaultValue={joinChannel} placeholder="Kanal ID'si" />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="leaveChannel">Sunucudan çıkarıldı kanalı</Label>
+          <Input id="leaveChannel" name="leaveChannel" inputMode="numeric" defaultValue={leaveChannel} placeholder="Kanal ID'si" />
+        </div>
+        <p className="text-xs text-muted-foreground sm:col-span-2">
+          Barbeque bir sunucuya eklenince ya da atılınca Lucia bu kanallara sunucunun adını, ID&apos;sini, resmini, banner&apos;ını ve üye sayısını
+          yazar. Boş bırakılan kanala yazılmaz; ikisi aynı kanal olabilir. Lucia&apos;nın o kanalda mesaj gönderme izni olmalı.
+        </p>
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="allowed">İzinli alan adları</Label>

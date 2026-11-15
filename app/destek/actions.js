@@ -13,17 +13,23 @@ export async function saveDestek(formData) {
   await requireUser();
   const token = String(formData.get('token') ?? '').trim();
   const logChannel = String(formData.get('logChannel') ?? '').trim();
+  const joinChannel = String(formData.get('joinChannel') ?? '').trim();
+  const leaveChannel = String(formData.get('leaveChannel') ?? '').trim();
   const allowed = String(formData.get('allowed') ?? '')
     .split(/[\s,]+/)
     .map((d) => d.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, ''))
     .filter(Boolean);
   if (token && (token.length < 20 || /\s/.test(token))) throw new Error('Token geçersiz görünüyor');
   if (logChannel && !ID.test(logChannel)) throw new Error('Log kanalı ID\'si yalnızca rakam olmalı');
+  if (joinChannel && !ID.test(joinChannel)) throw new Error('Eklendi kanalı ID\'si yalnızca rakam olmalı');
+  if (leaveChannel && !ID.test(leaveChannel)) throw new Error('Çıkarıldı kanalı ID\'si yalnızca rakam olmalı');
   const bad = allowed.find((d) => !DOMAIN.test(d));
   if (bad) throw new Error(`Geçersiz alan adı: ${bad}`);
   await setSettings({
     ...(token ? {destek_token: token} : {}),
     destek_log_channel: logChannel || null,
+    destek_join_channel: joinChannel || null,
+    destek_leave_channel: leaveChannel || null,
     destek_allowed: allowed.length ? allowed.join(',') : 'micup.gg',
   });
   revalidatePath('/destek');

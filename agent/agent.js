@@ -8,7 +8,7 @@ import {gunzipSync, gzipSync} from 'node:zlib';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const VERSION = '1.7.2';
+const VERSION = '1.8.0';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(process.env.BBQ_CONFIG || join(HERE, 'config.json'), 'utf8'));
 const SITE = config.siteUrl.replace(/\/$/, '');
@@ -197,6 +197,7 @@ function startBot() {
       const waiter = adminWaiters.get(message.id);
       if (waiter) waiter(message);
     }
+    if (message?.type === 'guild-event') forwardGuildEvent(message);
   });
 
   // Birkaç saniye ayakta kalırsa "çalışıyor" say.
@@ -319,7 +320,7 @@ function waitHealthy() {
 
 const DESTEK_DIR = config.destekDir || join(dirname(BOT_DIR), 'destek');
 const DESTEK_LOG = join(LOG_DIR, 'destek.log');
-const destek = {child: null, state: 'stopped', since: null, crashTimes: [], restartTimer: null, exitWaiters: [], config: null, configKey: 'null', sha: null, whitelist: null};
+const destek = {child: null, state: 'stopped', since: null, crashTimes: [], restartTimer: null, exitWaiters: [], config: null, configKey: 'null', sha: null, whitelist: null, ready: false, guildQueue: []};
 
 function destekLine(line) {
   writeLog('destek.log', `[${new Date().toLocaleString('tr-TR', {hour12: false})}] ${line}`);
@@ -374,6 +375,9 @@ function startDestek() {
       // Beyaz listeler (kullanıcı, rol ya da kanal ID'leri, virgülle). Açılıştan sonraki değişiklikler IPC ile gider.
       WHITELIST_LINK: (destek.whitelist?.link ?? []).join(','),
       WHITELIST_KUFUR: (destek.whitelist?.kufur ?? []).join(','),
+      // 1.8.0: ana bot sunucuya eklenince/çıkarılınca destek botunun yazacağı kanallar.
+      JOIN_CHANNEL_ID: destek.config.joinChannel || '',
+      LEAVE_CHANNEL_ID: destek.config.leaveChannel || '',
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     windowsHide: true,
@@ -388,6 +392,13 @@ function startDestek() {
   };
   child.stdout.on('data', onData);
   child.stderr.on('data', onData);
+  destek.ready = false;
+  // Destek botu Micup'a bağlanınca {type: 'ready'} gönderir; bekleyen sunucu bildirimleri o zaman iletilir.
+  child.on('message', (message) => {
+    if (message?.type !== 'ready' || destek.child !== child) return;
+    destek.ready = true;
+    flushGuildEvents();
+  });
   const ready = setTimeout(() => {
     if (destek.child === child) destek.state = 'running';
   }, 5000);
@@ -395,6 +406,7 @@ function startDestek() {
     clearTimeout(ready);
     if (destek.child !== child) return;
     destek.child = null;
+    destek.ready = false;
     destekLine(`--- destek botu kapandı (kod ${code ?? signal}) ---`);
     destek.exitWaiters.splice(0).forEach((w) => w(code));
     if (destek.state === 'stopping' || !destek.config?.token) {
@@ -468,6 +480,28 @@ function syncDestekWhitelist(wl) {
     } catch {}
   }
   if (!first) destekLine(`Beyaz liste güncellendi (link ${destek.whitelist.link.length}, küfür ${destek.whitelist.kufur.length} ID); bot yeniden başlamadı.`);
+}
+
+/**
+ * 1.8.0: Ana bot bir sunucuya eklenince/çıkarılınca bilgisi buraya gelir, destek botuna (Lucia) iletilir.
+ * Destek botu kapalıysa ya da henüz bağlanmadıysa en fazla 50 bildirim bekletilir (6 saatten eskisi atılır).
+ */
+function forwardGuildEvent(message) {
+  destek.guildQueue.push(message);
+  if (destek.guildQueue.length > 50) destek.guildQueue.shift();
+  flushGuildEvents();
+}
+
+function flushGuildEvents() {
+  const child = destek.child;
+  if (!child?.connected || !destek.ready) return;
+  const now = Date.now();
+  for (const message of destek.guildQueue.splice(0)) {
+    if (now - (message.at ?? now) > 6 * 3600_000) continue;
+    try {
+      child.send(message);
+    } catch {}
+  }
 }
 
 /** Panelin her yanıtındaki destek ayarları: değiştiyse bot yeniden başlar, token silindiyse durur. */
