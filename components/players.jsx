@@ -13,7 +13,30 @@ import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from '@/c
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const num = (n) => Number(n ?? 0).toLocaleString('tr-TR');
 const selectClass =
-  'h-8 rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring dark:bg-input/30';
+  'h-8 min-w-0 max-w-full rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring dark:bg-input/30';
+
+/** Botun özel (Micup) emojisi mi: "<a:gcamel:123>" gibi. Bunlar sitede yazı olarak değil public/animals/<key>.png olarak görünür. */
+const isCustomEmoji = (emoji) => typeof emoji === 'string' && emoji.startsWith('<');
+
+function AnimalIcon({animal, emoji}) {
+  if (isCustomEmoji(emoji)) {
+    // eslint-disable-next-line @next/next/no-img-element -- küçük, sabit hayvan resmi
+    return <img src={`/animals/${animal}.png`} alt="" width={20} height={20} className="inline-block size-5 shrink-0 object-contain align-text-bottom" />;
+  }
+  return <span className="shrink-0">{emoji}</span>;
+}
+
+/**
+ * Oyuncunun hayvanları zoo'daki sırayla: Common en üstte, sonra Uncommon, Rare, Epic, Mythical, Gem, Legendary, Fabled;
+ * sınıf içinde de zoo'daki sıra. Katalog (bottaki RARITIES) bu sırada gelir.
+ */
+function sortByCatalog(rows, animals) {
+  const order = new Map(animals.map((animal, i) => [animal.key, i]));
+  return [...rows].sort((a, b) => (order.get(a.animal) ?? Infinity) - (order.get(b.animal) ?? Infinity));
+}
+
+/** Seçim kutusu yazısı: native option resim gösteremez, özel emojili hayvanda yalnızca ad yazılır. */
+const optionEmoji = (emoji) => (isCustomEmoji(emoji) ? '' : `${emoji} `);
 
 /** İşi sıraya koyar ve ajan bota iletip sonuç gelene kadar bekler (en çok ~70 sn). */
 async function runJob(action, userId, params) {
@@ -145,8 +168,25 @@ export function Players({initialId = ''}) {
             title="Hayvanlar"
             empty="Hiç hayvanı yok."
             description="Adet değişince toplam yakalanan (zoo puanı) düşmez."
-            rows={p.zoo.map((row) => ({key: row.animal, label: `${row.emoji} ${row.name}${row.nickname ? ` (${row.nickname})` : ''}`, count: row.count, extra: `toplam ${row.total}`}))}
-            options={catalog.animals.map((animal) => ({key: animal.key, label: `${animal.emoji} ${animal.name} · ${animal.rarity}`}))}
+            rows={sortByCatalog(p.zoo, catalog.animals).map((row) => ({
+              key: row.animal,
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  <AnimalIcon animal={row.animal} emoji={row.emoji} />
+                  <span>
+                    {row.name}
+                    {row.nickname ? ` (${row.nickname})` : ''}
+                  </span>
+                </span>
+              ),
+              count: row.count,
+              extra: `toplam ${row.total}`,
+            }))}
+            options={catalog.animals.map((animal) => ({
+              key: animal.key,
+              label: `${optionEmoji(animal.emoji)}${animal.name} · ${animal.rarity}`,
+              icon: <AnimalIcon animal={animal.key} emoji={animal.emoji} />,
+            }))}
             disabled={pending}
             onSet={(animal, count) => act('setAnimal', {animal, count}, {success: 'Hayvan güncellendi'})}
           />
@@ -216,9 +256,9 @@ function CountRow({row, disabled, onSet}) {
   const [text, setText] = useState(String(row.count));
   return (
     <TableRow>
-      <TableCell>{row.label}</TableCell>
-      <TableCell className="text-xs text-muted-foreground">{row.extra ?? ''}</TableCell>
-      <TableCell className="w-48">
+      <TableCell className="whitespace-normal">{row.label}</TableCell>
+      <TableCell className="hidden text-xs text-muted-foreground sm:table-cell">{row.extra ?? ''}</TableCell>
+      <TableCell className="w-px">
         <form
           className="flex justify-end gap-1.5"
           onSubmit={(e) => {
@@ -226,7 +266,7 @@ function CountRow({row, disabled, onSet}) {
             onSet(row.key, text);
           }}
         >
-          <Input value={text} onChange={(e) => setText(e.target.value)} inputMode="numeric" className="w-24 font-mono" />
+          <Input value={text} onChange={(e) => setText(e.target.value)} inputMode="numeric" className="w-20 font-mono sm:w-24" />
           <Button type="submit" size="icon" variant="outline" disabled={disabled || text === String(row.count)} title="Kaydet">
             <SaveIcon />
           </Button>
@@ -268,13 +308,16 @@ function CountList({title, description, empty, rows, options, disabled, onSet}) 
             onSet(key, have + Number(count || 0));
           }}
         >
-          <select className={selectClass} value={key} onChange={(e) => setKey(e.target.value)}>
-            {options.map((option) => (
-              <option key={option.key} value={option.key}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          <div className="flex min-w-0 flex-[1_1_14rem] items-center gap-1.5">
+            {options.find((option) => option.key === key)?.icon ?? null}
+            <select className={`${selectClass} w-full`} value={key} onChange={(e) => setKey(e.target.value)}>
+              {options.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <Input value={count} onChange={(e) => setCount(e.target.value)} inputMode="numeric" className="w-24 font-mono" />
           <Button type="submit" variant="outline" disabled={disabled || !key || !Number(count)}>
             <PlusIcon /> Ekle
@@ -291,6 +334,8 @@ const RARITY_COLORS = {
   rare: 'text-sky-400',
   epic: 'text-violet-400',
   mythical: 'text-amber-400',
+  legendary: 'text-orange-400',
+  fabled: 'text-rose-400',
 };
 
 function Weapons({player, catalog, disabled, act}) {
@@ -312,7 +357,7 @@ function Weapons({player, catalog, disabled, act}) {
                   <TableHead>Kod</TableHead>
                   <TableHead>Silah</TableHead>
                   <TableHead>Kalite</TableHead>
-                  <TableHead>Takılı</TableHead>
+                  <TableHead className="hidden sm:table-cell">Takılı</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -328,7 +373,7 @@ function Weapons({player, catalog, disabled, act}) {
                     <TableCell className={RARITY_COLORS[weapon.rarity]}>
                       {weapon.rarity} {weapon.quality}%
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{weapon.animal ?? ''}</TableCell>
+                    <TableCell className="hidden text-xs text-muted-foreground sm:table-cell">{weapon.animal ?? ''}</TableCell>
                     <TableCell className="text-right">
                       <Button
                         size="icon"
@@ -357,14 +402,14 @@ function Weapons({player, catalog, disabled, act}) {
             act('addWeapon', {type: Number(type), rarity: rarity || null}, {success: (r) => `Silah verildi: ${r.code}`});
           }}
         >
-          <select className={selectClass} value={type} onChange={(e) => setType(e.target.value)}>
+          <select className={`${selectClass} flex-[1_1_10rem]`} value={type} onChange={(e) => setType(e.target.value)}>
             {types.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
               </option>
             ))}
           </select>
-          <select className={selectClass} value={rarity} onChange={(e) => setRarity(e.target.value)}>
+          <select className={`${selectClass} flex-[1_1_10rem]`} value={rarity} onChange={(e) => setRarity(e.target.value)}>
             <option value="">Rastgele (kasadan çıkmış gibi)</option>
             {catalog.weaponRarities.map((item) => (
               <option key={item.key} value={item.key}>

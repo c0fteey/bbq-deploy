@@ -380,7 +380,7 @@ export default async function Home({searchParams}) {
     <div className="mx-auto w-full max-w-6xl flex-1 space-y-6 p-4 md:p-8">
       <AutoRefresh ms={busy ? 2000 : 5000} />
 
-      <header className="flex items-center justify-between gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element -- küçük, sabit logo */}
           <img src="/logo.png" alt="Barbeque" width={36} height={36} className="size-9 object-contain" />
@@ -389,7 +389,7 @@ export default async function Home({searchParams}) {
             <p className="text-xs text-muted-foreground">Barbeque bot paneli</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link href="/oyuncular" className={buttonVariants({variant: 'outline', size: 'sm'})}>
             <UsersIcon /> Oyuncular
           </Link>
