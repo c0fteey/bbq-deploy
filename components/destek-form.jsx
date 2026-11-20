@@ -8,7 +8,7 @@ import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 
 /** Destek botu ayarları. Yalnızca token değişince bot yeniden başlar; kanallar ve alan adları anında uygulanır. Token alanı boş bırakılırsa kayıtlı token değişmez. */
-export function DestekForm({action, hasToken, logChannel, joinChannel, leaveChannel, allowed}) {
+export function DestekForm({action, hasToken, logChannel, joinChannel, leaveChannel, allowed, branch}) {
   const [pending, start] = useTransition();
   return (
     <form
@@ -60,6 +60,14 @@ export function DestekForm({action, hasToken, logChannel, joinChannel, leaveChan
         <Label htmlFor="allowed">İzinli alan adları</Label>
         <Input id="allowed" name="allowed" defaultValue={allowed} placeholder="micup.gg, youtube.com" />
         <p className="text-xs text-muted-foreground">Virgülle ayır. Alt alan adları da izinli olur. Davet linkleri her zaman silinir.</p>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="branch">Branch</Label>
+        <Input id="branch" name="branch" defaultValue={branch} placeholder="main" />
+        <p className="text-xs text-muted-foreground">
+          Ajanın destek botunu kurduğu dal. Rust sürümü için <span className="font-mono">yayin</span> (GitHub Actions her push&apos;ta derleyip
+          oraya koyar). Değiştirince bot o daldan hemen yeniden kurulur.
+        </p>
       </div>
       <Button type="submit" disabled={pending}>
         {pending ? <Loader2Icon className="animate-spin" /> : <SaveIcon />} Kaydet

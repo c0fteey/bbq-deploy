@@ -1,20 +1,25 @@
 'use server';
 
 import {revalidatePath} from 'next/cache';
-import {addDeploy, db, setSettings} from '@/lib/db';
+import {addDeploy, db, getSettings, setSettings} from '@/lib/db';
 import {WL_LISTS} from '@/lib/destek';
 import {requireUser} from '@/lib/session';
 
 const DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 const ID = /^\d{5,25}$/;
+const BRANCH = /^[A-Za-z0-9._/-]{1,100}$/;
 
-/** Token boş bırakılırsa eskisi kalır; "Token'ı kaldır" ayrı. Yalnızca token değişince bot yeniden başlar; diğerleri ajanla çalışan bota iletilir. */
+/**
+ * Token boş bırakılırsa eskisi kalır; "Token'ı kaldır" ayrı. Yalnızca token değişince bot yeniden başlar; diğerleri ajanla çalışan bota iletilir.
+ * Branch değişince destek botu o daldan hemen yeniden kurulur (Rust sürümü "yayin" dalında: GitHub Actions derleyip oraya koyar).
+ */
 export async function saveDestek(formData) {
   await requireUser();
   const token = String(formData.get('token') ?? '').trim();
   const logChannel = String(formData.get('logChannel') ?? '').trim();
   const joinChannel = String(formData.get('joinChannel') ?? '').trim();
   const leaveChannel = String(formData.get('leaveChannel') ?? '').trim();
+  const branch = String(formData.get('branch') ?? '').trim() || 'main';
   const allowed = String(formData.get('allowed') ?? '')
     .split(/[\s,]+/)
     .map((d) => d.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, ''))
@@ -23,15 +28,19 @@ export async function saveDestek(formData) {
   if (logChannel && !ID.test(logChannel)) throw new Error('Log kanalı ID\'si yalnızca rakam olmalı');
   if (joinChannel && !ID.test(joinChannel)) throw new Error('Eklendi kanalı ID\'si yalnızca rakam olmalı');
   if (leaveChannel && !ID.test(leaveChannel)) throw new Error('Çıkarıldı kanalı ID\'si yalnızca rakam olmalı');
+  if (!BRANCH.test(branch) || branch.includes('..')) throw new Error('Branch adı geçersiz');
   const bad = allowed.find((d) => !DOMAIN.test(d));
   if (bad) throw new Error(`Geçersiz alan adı: ${bad}`);
+  const previous = (await getSettings()).destek_branch || 'main';
   await setSettings({
     ...(token ? {destek_token: token} : {}),
     destek_log_channel: logChannel || null,
     destek_join_channel: joinChannel || null,
     destek_leave_channel: leaveChannel || null,
     destek_allowed: allowed.length ? allowed.join(',') : 'micup.gg',
+    destek_branch: branch,
   });
+  if (branch !== previous) await addDeploy({kind: 'destek', message: `Destek botu branch: ${previous} → ${branch}`});
   revalidatePath('/destek');
 }
 
